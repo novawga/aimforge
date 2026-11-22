@@ -1,0 +1,44 @@
+name = "Air Angelic 4 Voltaic"
+category = "Tracking"
+author = "AimForge"
+description = "Airborne bot that jumps and changes direction constantly. Smooth vertical + horizontal tracking."
+duration = 60.0
+
+[arena]
+min = [-22.0, 0.0, -6.0]
+max = [22.0, 14.0, 36.0]
+
+[weapon]
+mode = "Auto"
+fire_rate = 20.0
+damage = 5.0
+
+[targets]
+shape = "Bot"
+radius = 0.42
+height = 1.9
+head_radius = 0.18
+invincible = true
+max_alive = 1
+
+[spawn]
+shape = "Box"
+box_min = [-3.0, 0.0, 12.0]
+box_max = [3.0, 2.0, 14.0]
+
+[movement]
+pattern = "Air"
+speed_min = 3.5
+speed_max = 5.0
+change_min = 0.4
+change_max = 1.2
+accel = 30.0
+gravity = 9.0
+jump_min = 6.0
+jump_max = 8.5
+bounds_min = [-10.0, 0.0, 10.0]
+bounds_max = [10.0, 11.0, 16.0]
+
+[scoring]
+per_kill = 0.0
+per_damage = 1.0

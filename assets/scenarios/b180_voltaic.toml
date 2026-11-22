@@ -1,0 +1,37 @@
+name = "B180 Voltaic"
+category = "Clicking"
+author = "AimForge"
+description = "Bounce 180: three targets bouncing through the half-room in front of you. Large dynamic flicks."
+duration = 60.0
+
+[arena]
+min = [-18.0, 0.0, -18.0]
+max = [18.0, 14.0, 18.0]
+
+[targets]
+radius = 0.45
+max_alive = 3
+
+[spawn]
+shape = "Arc"
+yaw_min = -80.0
+yaw_max = 80.0
+pitch_min = -3.0
+pitch_max = 18.0
+dist_min = 8.5
+dist_max = 12.5
+min_separation = 3.0
+
+[movement]
+pattern = "Bounce"
+speed_min = 4.0
+speed_max = 6.0
+change_min = 0.5
+change_max = 1.4
+axes = [true, true, true]
+min_player_dist = 7.5
+bounds_min = [-15.0, 0.4, 5.0]
+bounds_max = [15.0, 7.5, 17.0]
+
+[scoring]
+per_kill = 10.0

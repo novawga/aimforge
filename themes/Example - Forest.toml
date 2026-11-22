@@ -1,0 +1,21 @@
+# Example theme. Copy it, change the colours, press F5 in the menu.
+# Any colour you leave out falls back to the default (Graphite) theme.
+# Every available key is listed when you use Settings > Theme > Save as file.
+name = "Forest"
+
+[colors]
+bg             = "#0e1411"
+surface        = "#151d19"
+surface_hover  = "#1b2520"
+surface_active = "#223029"
+border         = "#26332c"
+accent         = "#5fd38d"
+accent_text    = "#0b1410"
+world_bg       = "#18201c"
+wall           = "#34413a"
+wall_top       = "#44534b"
+floor          = "#29332e"
+floor_far      = "#303b35"
+grid           = "#55665c"
+floor_grid     = "#3d4a43"
+target         = "#ff6b4a"

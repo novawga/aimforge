@@ -1,0 +1,44 @@
+name = "voxTS Voltaic"
+category = "Switching"
+author = "AimForge"
+description = "Static-ish target switching: targets appear wide apart and barely move. Flick-track-flick."
+duration = 60.0
+
+[arena]
+min = [-18.0, 0.0, -18.0]
+max = [18.0, 14.0, 18.0]
+
+[weapon]
+mode = "Auto"
+fire_rate = 20.0
+damage = 5.0
+
+[targets]
+radius = 0.45
+health = 30.0
+max_alive = 3
+
+[spawn]
+shape = "Arc"
+yaw_min = -60.0
+yaw_max = 60.0
+pitch_min = 0.0
+pitch_max = 25.0
+dist_min = 10.0
+dist_max = 12.0
+min_separation = 4.0
+
+[movement]
+min_player_dist = 7.0
+pattern = "Bounce"
+speed_min = 1.0
+speed_max = 2.0
+change_min = 0.6
+change_max = 1.4
+axes = [true, true, false]
+bounds_min = [-14.0, 0.4, 4.0]
+bounds_max = [14.0, 9.0, 16.0]
+
+[scoring]
+per_kill = 0.0
+per_damage = 1.0

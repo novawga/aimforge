@@ -1,0 +1,28 @@
+# Example custom scenario. Copy this file, rename it, change the numbers,
+# then press F5 in the AimForge menu to reload. Only list what you change:
+# everything else falls back to the defaults in SCENARIO_FORMAT.md.
+
+name = "My First Scenario"
+category = "Clicking"            # Clicking | Tracking | Switching | Timing | Strafe
+description = "Five medium targets drifting slowly across a wide wall."
+duration = 60.0
+
+[targets]
+radius = 0.38                    # metres; ~0.3 = small, ~0.5 = large at 18 m
+max_alive = 5
+
+[spawn]
+shape = "Box"
+box_min = [-8.0, 1.5, 18.0]      # x (left/right), y (height), z (distance)
+box_max = [8.0, 6.5, 18.0]
+min_separation = 2.0
+
+[movement]
+pattern = "Bounce"
+speed_min = 1.0
+speed_max = 2.0
+axes = [true, true, false]       # move on x and y only (stay on the wall)
+
+[scoring]
+per_kill = 10.0
+per_miss = 1.0                   # small penalty for missed shots

@@ -1,0 +1,18 @@
+name = "ww3t Voltaic"
+category = "Clicking"
+author = "AimForge"
+description = "Wide wall, three targets. Bigger flicks across a wide area - speed with control."
+duration = 60.0
+
+[targets]
+radius = 0.42
+max_alive = 3
+
+[spawn]
+shape = "Box"
+box_min = [-10.0, 1.3, 18.0]
+box_max = [10.0, 7.0, 18.0]
+min_separation = 3.5
+
+[scoring]
+per_kill = 10.0

@@ -1,0 +1,40 @@
+name = "Close Long Strafes Invincible"
+category = "Tracking"
+author = "AimForge"
+description = "Close-range bot with long, committed strafes. Match speed, then react to the swap."
+duration = 60.0
+
+[arena]
+min = [-22.0, 0.0, -6.0]
+max = [22.0, 14.0, 36.0]
+
+[weapon]
+mode = "Auto"
+fire_rate = 20.0
+damage = 5.0
+
+[targets]
+shape = "Bot"
+radius = 0.4
+height = 1.9
+head_radius = 0.18
+invincible = true
+max_alive = 1
+
+[spawn]
+shape = "Box"
+box_min = [-1.0, 0.0, 7.0]
+box_max = [1.0, 0.0, 7.0]
+
+[movement]
+pattern = "Strafe"
+speed_min = 5.0
+speed_max = 6.0
+change_min = 0.7
+change_max = 1.5
+bounds_min = [-10.0, 0.0, 6.0]
+bounds_max = [10.0, 6.0, 8.0]
+
+[scoring]
+per_kill = 0.0
+per_damage = 1.0

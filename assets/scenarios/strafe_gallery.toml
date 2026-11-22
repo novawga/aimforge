@@ -1,0 +1,24 @@
+name = "Strafe Gallery"
+category = "Strafe"
+author = "AimForge"
+description = "You are forced to strafe left/right while clicking static targets - shoot while moving, counter-strafe aim."
+duration = 60.0
+
+[player]
+can_move = true
+forced_strafe = 5.0
+forced_strafe_min = 0.35
+forced_strafe_max = 0.9
+
+[targets]
+radius = 0.38
+max_alive = 3
+
+[spawn]
+shape = "Box"
+box_min = [-8.0, 1.4, 18.0]
+box_max = [8.0, 6.0, 18.0]
+min_separation = 2.5
+
+[scoring]
+per_kill = 10.0

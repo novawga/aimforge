@@ -1,0 +1,44 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            exe: aimforge.exe
+            artifact: AimForge-windows
+          - os: macos-latest
+            exe: aimforge
+            artifact: AimForge-macos
+          - os: ubuntu-latest
+            exe: aimforge
+            artifact: AimForge-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev libxi-dev libgl1-mesa-dev
+      - name: Test
+        run: cargo test --release
+      - name: Build
+        run: cargo build --release
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist/AimForge
+          cp target/release/${{ matrix.exe }} dist/AimForge/
+          cp -r scenarios themes README.md SCENARIO_FORMAT.md LICENSE dist/AimForge/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/AimForge

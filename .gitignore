@@ -1,0 +1,7 @@
+/target
+/stats
+settings.toml
+/playlists/community-riddbtw/
+/playlists/My Playlist.json
+*.old
+*.new

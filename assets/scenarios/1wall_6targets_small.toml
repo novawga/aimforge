@@ -1,0 +1,18 @@
+name = "1wall 6targets small"
+category = "Clicking"
+author = "AimForge"
+description = "The classic: six small targets on one wall. Speed + precision fundamentals."
+duration = 60.0
+
+[targets]
+radius = 0.3
+max_alive = 6
+
+[spawn]
+shape = "Box"
+box_min = [-4.8, 1.5, 18.0]
+box_max = [4.8, 6.5, 18.0]
+min_separation = 1.1
+
+[scoring]
+per_kill = 10.0

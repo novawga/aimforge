@@ -1,0 +1,19 @@
+name = "Tile Frenzy"
+category = "Clicking"
+author = "AimForge"
+description = "3x3 grid of fixed slots, three lit at once. Rhythm, speed and short flicks."
+duration = 60.0
+
+[targets]
+radius = 0.45
+max_alive = 3
+
+[spawn]
+shape = "Grid"
+grid_center = [0.0, 3.6, 16.0]
+grid_cols = 3
+grid_rows = 3
+grid_spacing = 1.6
+
+[scoring]
+per_kill = 10.0

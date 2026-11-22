@@ -1,0 +1,28 @@
+name = "Pasu Voltaic"
+category = "Clicking"
+author = "AimForge"
+description = "Five targets bouncing around a wall. Click moving targets: read, adjust, confirm."
+duration = 60.0
+
+[targets]
+radius = 0.42
+max_alive = 5
+
+[spawn]
+shape = "Box"
+box_min = [-6.0, 1.5, 18.0]
+box_max = [6.0, 7.0, 18.0]
+min_separation = 1.6
+
+[movement]
+pattern = "Bounce"
+speed_min = 3.0
+speed_max = 4.5
+change_min = 0.5
+change_max = 1.4
+axes = [true, true, false]
+bounds_min = [-7.5, 1.0, 18.0]
+bounds_max = [7.5, 8.0, 18.0]
+
+[scoring]
+per_kill = 10.0
