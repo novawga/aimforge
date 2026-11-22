@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
-/// Built-in project. Empty = online leaderboards off unless set in settings.toml
-/// (`board_url` / `board_key`). The anon key is public by design; row-level
-/// security only allows reading and inserting.
-pub const DEFAULT_URL: &str = "";
-pub const DEFAULT_KEY: &str = "";
+/// Built-in global leaderboard project (overridable with `board_url` /
+/// `board_key` in settings.toml). The publishable key is public by design:
+/// row-level security only allows reading scores and inserting new runs.
+pub const DEFAULT_URL: &str = "https://tjxtkaqpeijnfdsywxqs.supabase.co";
+pub const DEFAULT_KEY: &str = "sb_publishable_TEybJzTKYgLwGcIO7bMInQ_Pf17nmZH";
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Entry {
@@ -79,17 +79,21 @@ fn enc(s: &str) -> String {
 }
 
 impl Config {
+    /// New `sb_publishable_` keys go in the `apikey` header only; legacy
+    /// JWT anon keys (`eyJ...`) also need the Authorization bearer.
+    fn auth(&self, req: ureq::Request) -> ureq::Request {
+        let req = req.set("apikey", &self.key);
+        if self.key.starts_with("eyJ") {
+            req.set("Authorization", &format!("Bearer {}", self.key))
+        } else {
+            req
+        }
+    }
     fn get(&self, path: &str) -> ureq::Request {
-        agent()
-            .get(&format!("{}{}", self.url.trim_end_matches('/'), path))
-            .set("apikey", &self.key)
-            .set("Authorization", &format!("Bearer {}", self.key))
+        self.auth(agent().get(&format!("{}{}", self.url.trim_end_matches('/'), path)))
     }
     fn post(&self, path: &str) -> ureq::Request {
-        agent()
-            .post(&format!("{}{}", self.url.trim_end_matches('/'), path))
-            .set("apikey", &self.key)
-            .set("Authorization", &format!("Bearer {}", self.key))
+        self.auth(agent().post(&format!("{}{}", self.url.trim_end_matches('/'), path)))
     }
 
     /// Best run per player for a scenario, highest first.
@@ -256,5 +260,23 @@ mod tests {
         let back: Entry = serde_json::from_str(r#"{"id":3,"created_at":"2026-11-22T10:00:00Z","scenario":"a","scenario_name":"A","player":"p","player_id":"x","score":1.5,"accuracy":0.9,"kills":3,"hits":4,"shots":5,"cm360":30,"hfov":103,"duration":60,"game_version":"0.4.0","replay_path":null}"#).unwrap();
         assert_eq!(back.date(), "2026-11-22");
         assert_eq!(back.id, Some(3));
+    }
+}
+
+#[cfg(test)]
+mod mock_e2e {
+    use super::*;
+    #[test]
+    #[ignore]
+    fn against_mock() {
+        let c = Config { url: "http://127.0.0.1:8766".into(), key: "test-key".into() };
+        let e = Entry { scenario: "e2e test".into(), scenario_name: "E2E".into(), player: "Nova".into(),
+            player_id: new_player_id(), score: 1234.0, accuracy: 0.9, kills: 10, hits: 9, shots: 10,
+            cm360: 30.0, hfov: 103.0, duration: 60.0, game_version: "0.4.1".into(), ..Default::default() };
+        let r = c.submit(e, Some(vec![1, 2, 3]));
+        println!("submit {:?}", r);
+        let top = c.top("e2e test", 10).unwrap();
+        println!("top {:?}", top.iter().map(|t| (&t.player, t.score)).collect::<Vec<_>>());
+        assert!(!top.is_empty());
     }
 }
