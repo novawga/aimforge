@@ -46,6 +46,9 @@ impl App {
                 jump: is_key_down(KeyCode::Space),
             };
             g.update(dt, keys);
+            if let Some(r) = &mut self.recorder {
+                r.sample(g);
+            }
         }
 
         // Feedback.
@@ -54,6 +57,9 @@ impl App {
         let tracking = g.scn.weapon.mode == FireMode::Auto;
         let (hit_name, kill_name) = (self.settings.hit_sound_name.clone(), self.settings.kill_sound_name.clone());
         for ev in g.events.drain(..) {
+            if let Some(r) = &mut self.recorder {
+                r.event(g.time, &ev);
+            }
             if let GameEvent::Hit { kill, .. } = ev {
                 self.hitmarker = 1.0;
                 self.hitmarker_kill = kill;

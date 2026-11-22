@@ -27,7 +27,7 @@ impl App {
         let x0 = sc(PAD);
         let wm_w = self.ui.strong("AimForge", x0, (bar_h - sc(20.0)) * 0.5 - sc(2.0), 19.0, t.text);
         let mut x = x0 + wm_w + sc(28.0);
-        for (tab, label) in [(Tab::Scenarios, "Scenarios"), (Tab::Playlists, "Playlists"), (Tab::Settings, "Settings")] {
+        for (tab, label) in [(Tab::Scenarios, "Scenarios"), (Tab::Playlists, "Playlists"), (Tab::Leaderboards, "Leaderboards"), (Tab::Settings, "Settings")] {
             let (clicked, w) = self.ui.nav(x, 0.0, bar_h, label, self.tab == tab);
             if clicked {
                 self.tab = tab;
@@ -75,6 +75,7 @@ impl App {
         match self.tab {
             Tab::Scenarios => self.page_scenarios(content),
             Tab::Playlists => self.page_playlists(content),
+            Tab::Leaderboards => self.page_boards(content),
             Tab::Settings => self.page_settings(content),
         }
     }
@@ -286,10 +287,10 @@ impl App {
             self.start(&name);
             return;
         }
-        let half = (inner_w - sc(10.0)) * 0.5;
+        let third = (inner_w - sc(20.0)) / 3.0;
         let by2 = by + sc(58.0);
-        let edit_label = if src == Source::Custom { "Show file" } else { "Export to file" };
-        if self.ui.button(Rect::new(d.x + pad, by2, half, sc(42.0)), edit_label, Kind::Secondary) {
+        let edit_label = if src == Source::Custom { "Show file" } else { "Export" };
+        if self.ui.button(Rect::new(d.x + pad, by2, third, sc(42.0)), edit_label, Kind::Secondary) {
             if src == Source::Custom {
                 if let Some(p) = self.lib.custom_path(&name) {
                     crate::open_path(p.parent().unwrap_or(&self.paths.scenarios));
@@ -304,8 +305,13 @@ impl App {
                 }
             }
         }
-        if self.ui.button(Rect::new(d.x + pad + half + sc(10.0), by2, half, sc(42.0)), "Add to My Playlist", Kind::Secondary) {
+        if self.ui.button(Rect::new(d.x + pad + third + sc(10.0), by2, third, sc(42.0)), "+ Playlist", Kind::Secondary) {
             self.add_to_my_playlist(&name);
+        }
+        if self.ui.button(Rect::new(d.x + pad + (third + sc(10.0)) * 2.0, by2, third, sc(42.0)), "Leaderboard", Kind::Secondary) {
+            self.board_scenario = Some(name.clone());
+            self.board_scroll = 0.0;
+            self.tab = Tab::Leaderboards;
         }
     }
 

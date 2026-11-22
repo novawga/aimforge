@@ -1060,6 +1060,7 @@ impl Game {
             date: crate::stats::now_string(),
             cm360,
             hfov,
+            replay: None,
         }
     }
 }

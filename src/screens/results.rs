@@ -1,7 +1,8 @@
 //! Post-run summary.
 
 use super::menu::draw_graph;
-use crate::app::{App, Screen};
+use crate::app::{App, Screen, SubmitState};
+use crate::screens::boards::ReplayRef;
 use crate::theme::{self, category};
 use crate::ui::{fmt_score, rrect, size, Kind};
 use macroquad::prelude::*;
@@ -85,27 +86,68 @@ impl App {
             self.ui.strong(v, x, yy + sc(20.0), 17.0, t.text);
         }
 
-        // History graph.
+        // Right card: leaderboard / your runs / history.
         let gx = pad + left_w + sc(20.0);
         let gr = Rect::new(gx, card.y, sw - gx - pad, stats.y + stats.h - card.y);
         self.ui.card(gr);
-        let runs = self.history.runs(&name);
-        self.ui.text("Score history", gr.x + sc(24.0), gr.y + sc(22.0), size::SMALL, t.text_dim);
-        let n10 = runs.len().min(10);
-        let avg = if n10 > 0 { runs[runs.len() - n10..].iter().map(|r| r.score).sum::<f32>() / n10 as f32 } else { 0.0 };
-        self.ui.text_right(
-            &format!("{} plays  ·  last {} avg {}", runs.len(), n10, fmt_score(avg)),
-            gr.x + gr.w - sc(24.0),
-            gr.y + sc(22.0),
-            size::SMALL,
-            t.text_faint,
-            false,
-        );
-        let scores: Vec<f32> = runs.iter().rev().take(40).rev().map(|r| r.score).collect();
-        draw_graph(&self.ui, Rect::new(gr.x + sc(72.0), gr.y + sc(64.0), gr.w - sc(100.0), gr.h - sc(96.0)), &scores);
+        let tabs = ["Leaderboard", "Your runs", "History"];
+        if let Some(i) = self.ui.segmented(Rect::new(gr.x + sc(20.0), gr.y + sc(16.0), sc(330.0), sc(34.0)), &tabs, self.results_tab) {
+            self.results_tab = i;
+        }
+        let submit = self.result.as_ref().map(|r| r.submit.clone()).unwrap_or(SubmitState::Offline);
+        let inner = Rect::new(gr.x + sc(20.0), gr.y + sc(66.0), gr.w - sc(40.0), gr.h - sc(86.0));
+        let mut watch: Option<(ReplayRef, String)> = None;
+        match self.results_tab {
+            0 => {
+                let (line, col) = match &submit {
+                    SubmitState::Offline => ("Online leaderboards aren't connected yet. Your run and replay are saved locally.".to_string(), t.text_faint),
+                    SubmitState::Disabled => ("Score submission is off (Settings > Gameplay).".to_string(), t.text_faint),
+                    SubmitState::NeedName => ("Choose a name to put this run on the leaderboard.".to_string(), t.text_dim),
+                    SubmitState::Sending => ("Submitting...".to_string(), t.text_dim),
+                    SubmitState::Done { rank, total } => (format!("You're #{rank} of {total} players"), t.good),
+                    SubmitState::Failed(e) => (format!("Not submitted: {e}"), t.bad),
+                };
+                let line = self.ui.fit(&line, size::SMALL, inner.w, true);
+                self.ui.strong(&line, inner.x, inner.y, size::SMALL, col);
+                let mut top = inner.y + sc(30.0);
+                if submit == SubmitState::NeedName {
+                    if self.name_prompt(inner.x, top, inner.w.min(sc(460.0))) {
+                        let r = self.result.as_ref().unwrap();
+                        let (n, rec) = (r.name.clone(), r.rec.clone());
+                        let bytes = r.replay.as_ref().map(|rp| rp.encode());
+                        self.submit_run(&n, &rec, bytes);
+                        if let Some(r) = &mut self.result {
+                            r.submit = SubmitState::Sending;
+                        }
+                    }
+                    top += sc(76.0);
+                }
+                if self.board.online() {
+                    let rows: Vec<_> = self.global_rows(&name).into_iter().take(50).collect();
+                    let area = Rect::new(inner.x, top, inner.w, inner.y + inner.h - top);
+                    watch = self.board_table(area, &rows, 0, true);
+                }
+            }
+            1 => {
+                let rows = self.local_rows(&name);
+                watch = self.board_table(inner, &rows, 0, true);
+            }
+            _ => {
+                let runs = self.history.runs(&name);
+                let n10 = runs.len().min(10);
+                let avg = if n10 > 0 { runs[runs.len() - n10..].iter().map(|r| r.score).sum::<f32>() / n10 as f32 } else { 0.0 };
+                self.ui.text(&format!("{} plays  ·  last {} avg {}", runs.len(), n10, fmt_score(avg)), inner.x, inner.y, size::SMALL, t.text_faint);
+                let scores: Vec<f32> = runs.iter().rev().take(40).rev().map(|r| r.score).collect();
+                draw_graph(&self.ui, Rect::new(inner.x + sc(52.0), inner.y + sc(36.0), inner.w - sc(60.0), inner.h - sc(50.0)), &scores);
+            }
+        }
         if let Some(p) = &csv {
             let line = self.ui.fit(&format!("Saved to {}", p.display()), size::CAPTION, gr.w, false);
             self.ui.text(&line, gr.x, gr.y + gr.h + sc(10.0), size::CAPTION, t.text_faint);
+        }
+        if let Some((rp, label)) = watch {
+            self.watch(&rp, format!("{label}  ·  {name}"));
+            return;
         }
 
         // Actions (bottom right).
@@ -129,11 +171,16 @@ impl App {
             act = 1;
         }
         x -= sc(10.0) + w;
+        let has_replay = self.result.as_ref().is_some_and(|r| r.replay.is_some());
+        if has_replay && self.ui.button(Rect::new(x, by, w, bh), "Watch replay", Kind::Secondary) {
+            act = 4;
+        }
+        x -= sc(10.0) + w;
         if self.ui.button(Rect::new(x, by, w, bh), "Menu", Kind::Ghost) {
             act = 3;
         }
         self.ui.text(
-            if next.is_some() { "Enter next  ·  R again  ·  Esc menu" } else { "R or Space again  ·  Esc menu" },
+            if next.is_some() { "Enter next  ·  R again  ·  V replay  ·  Esc menu" } else { "R or Space again  ·  V replay  ·  Esc menu" },
             pad,
             by + sc(16.0),
             size::SMALL,
@@ -148,7 +195,15 @@ impl App {
         if is_key_pressed(KeyCode::Escape) {
             act = 3;
         }
+        if is_key_pressed(KeyCode::V) && has_replay {
+            act = 4;
+        }
         match act {
+            4 => {
+                if let Some(rp) = self.result.as_ref().and_then(|r| r.replay.clone()) {
+                    self.open_replay(rp, "Your last run".into());
+                }
+            }
             1 => self.restart(),
             2 => self.advance_playlist(),
             3 => {

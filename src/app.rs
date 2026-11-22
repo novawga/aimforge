@@ -8,6 +8,8 @@ use crate::settings::Settings;
 use crate::stats::{self, History, RunRecord};
 use crate::theme::{self, NamedTheme};
 use crate::ui::{rrect, size, Ui};
+use crate::leaderboard::{self, Msg};
+use crate::replay::{self as replay_mod, Recorder, Replay};
 use crate::update::{self, Updater};
 use crate::{audio, render, Paths};
 use macroquad::prelude::*;
@@ -18,12 +20,14 @@ pub enum Screen {
     Menu,
     Playing,
     Results,
+    Replay,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Scenarios,
     Playlists,
+    Leaderboards,
     Settings,
 }
 
@@ -92,6 +96,47 @@ pub struct ResultInfo {
     pub csv: Option<PathBuf>,
     pub category: Category,
     pub tracking: bool,
+    pub replay: Option<Replay>,
+    pub submit: SubmitState,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SubmitState {
+    /// No leaderboard server configured.
+    Offline,
+    /// Online, but no player name chosen yet.
+    NeedName,
+    Disabled,
+    Sending,
+    Done { rank: usize, total: usize },
+    Failed(String),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BoardMode {
+    Global,
+    Mine,
+}
+
+#[derive(Default)]
+pub struct BoardState {
+    pub loading: bool,
+    pub entries: Vec<leaderboard::Entry>,
+    pub error: Option<String>,
+    pub fetched: f64,
+}
+
+pub struct ReplayView {
+    pub replay: Replay,
+    pub game: Game,
+    pub t: f32,
+    pub playing: bool,
+    pub speed: f32,
+    pub from: Screen,
+    pub label: String,
+    pub next_event: usize,
+    pub hitmarker: f32,
+    pub hitmarker_kill: bool,
 }
 
 pub struct App {
@@ -145,6 +190,18 @@ pub struct App {
     pub started_at: f64,
     pub restart_at: Option<f64>,
     pub playlist_job: Option<std::sync::mpsc::Receiver<Result<usize, String>>>,
+
+    pub board: leaderboard::Client,
+    pub boards: std::collections::HashMap<String, BoardState>,
+    pub board_mode: BoardMode,
+    pub board_scenario: Option<String>,
+    pub board_scroll: f32,
+    pub board_list_scroll: f32,
+    pub board_search: String,
+    pub name_buf: String,
+    pub recorder: Option<Recorder>,
+    pub viewer: Option<ReplayView>,
+    pub results_tab: usize,
 }
 
 impl App {
@@ -212,7 +269,23 @@ impl App {
             started_at: get_time(),
             restart_at: None,
             playlist_job: None,
+            board: leaderboard::Client::new("", ""),
+            boards: Default::default(),
+            board_mode: BoardMode::Global,
+            board_scenario: None,
+            board_scroll: 0.0,
+            board_list_scroll: 0.0,
+            board_search: String::new(),
+            name_buf: String::new(),
+            recorder: None,
+            viewer: None,
+            results_tab: 0,
         };
+        app.board = leaderboard::Client::new(&app.settings.board_url, &app.settings.board_key);
+        if app.settings.player_id.len() != 36 {
+            app.settings.player_id = leaderboard::new_player_id();
+            app.settings.save(&app.paths.settings);
+        }
         app.apply_theme();
         app.refresh_entries();
         if let Some(v) = app.updater.just_updated.clone() {
@@ -255,6 +328,36 @@ impl App {
                     }
                     Err(e) => self.toast(e),
                 }
+            }
+        }
+        while let Ok(msg) = self.board.rx.try_recv() {
+            match msg {
+                Msg::Top { scenario, result } => {
+                    let st = self.boards.entry(scenario).or_default();
+                    st.loading = false;
+                    st.fetched = get_time();
+                    match result {
+                        Ok(e) => {
+                            st.entries = e;
+                            st.error = None;
+                        }
+                        Err(e) => st.error = Some(e),
+                    }
+                }
+                Msg::Submitted { scenario, score, result } => {
+                    if let Some(r) = &mut self.result {
+                        if scenario::key(&r.name) == scenario && (r.rec.score - score).abs() < 1e-3 {
+                            r.submit = match result {
+                                Ok((rank, total)) => SubmitState::Done { rank, total },
+                                Err(e) => SubmitState::Failed(e),
+                            };
+                        }
+                    }
+                }
+                Msg::Replay { label, result } => match result.and_then(|b| Replay::decode(&b)) {
+                    Ok(r) => self.open_replay(r, label),
+                    Err(e) => self.toast(format!("Couldn't load replay: {e}")),
+                },
             }
         }
         if self.updater.poll() {
@@ -350,6 +453,7 @@ impl App {
             .unwrap_or(1);
         self.current = s.name.clone();
         self.game = Some(Game::new(s, self.settings.countdown, self.settings.auto_fire_tracking, seed));
+        self.recorder = Some(Recorder::new());
         self.paused = false;
         self.screen = Screen::Playing;
         self.last_countdown_tick = -1;
@@ -398,7 +502,7 @@ impl App {
 
     pub fn finish(&mut self) {
         let Some(g) = &self.game else { return };
-        let rec = g.record(self.settings.cm_per_360() as f32, self.settings.hfov);
+        let mut rec = g.record(self.settings.cm_per_360() as f32, self.settings.hfov);
         let name = g.scn.name.clone();
         let category = g.scn.category;
         let tracking = g.scn.weapon.mode == FireMode::Auto;
@@ -408,13 +512,123 @@ impl App {
             self.sounds.play(if best { "highscore" } else { "finish" }, self.settings.volume * 0.8);
         }
         let csv = stats::write_csv(&self.paths.stats, &name, &rec, &g.kill_log, &self.settings.sens_label());
+
+        // Replay.
+        let mut replay = None;
+        let mut bytes = None;
+        if let Some(mut r) = self.recorder.take() {
+            r.sample(g);
+            let rp = r.finish(replay_mod::Header {
+                player: self.settings.player_name.clone(),
+                scenario: name.clone(),
+                score: rec.score,
+                accuracy: rec.accuracy,
+                kills: rec.kills,
+                hits: rec.hits,
+                shots: rec.shots,
+                duration: rec.duration,
+                date: rec.date.clone(),
+                cm360: rec.cm360,
+                hfov: rec.hfov,
+                game_version: update::VERSION.to_string(),
+                scenario_toml: toml::to_string(&g.scn).unwrap_or_default(),
+            });
+            let b = rp.encode();
+            rec.replay = replay_mod::save(&self.paths.stats, &rp, &b);
+            replay = Some(rp);
+            bytes = Some(b);
+        }
         self.history.add(&name, rec.clone());
+        self.history.prune_replays(&name, &replay_mod::dir(&self.paths.stats));
+
+        // Online.
+        let submit = if !self.board.online() {
+            SubmitState::Offline
+        } else if !self.settings.submit_scores {
+            SubmitState::Disabled
+        } else if self.settings.player_name.trim().is_empty() {
+            SubmitState::NeedName
+        } else if rec.shots == 0 {
+            SubmitState::Failed("no shots fired, not submitted".into())
+        } else {
+            self.submit_run(&name, &rec, bytes.clone());
+            SubmitState::Sending
+        };
+        if self.board.online() {
+            self.ensure_board(&name, true);
+        }
+
         if !self.entries.iter().any(|e| e.lower == scenario::key(&name)) {
             self.refresh_entries();
         }
-        self.result = Some(ResultInfo { name, rec, prev_best, csv, category, tracking });
+        self.result = Some(ResultInfo { name, rec, prev_best, csv, category, tracking, replay, submit });
         self.screen = Screen::Results;
         self.set_grab(false);
+    }
+
+    pub fn submit_run(&mut self, name: &str, rec: &RunRecord, replay: Option<Vec<u8>>) {
+        let entry = leaderboard::Entry {
+            scenario: scenario::key(name),
+            scenario_name: name.to_string(),
+            player: leaderboard::clean_name(&self.settings.player_name),
+            player_id: self.settings.player_id.clone(),
+            score: rec.score,
+            accuracy: rec.accuracy.clamp(0.0, 1.0),
+            kills: rec.kills as i32,
+            hits: rec.hits as i32,
+            shots: rec.shots as i32,
+            cm360: rec.cm360,
+            hfov: rec.hfov,
+            duration: rec.duration,
+            game_version: update::VERSION.to_string(),
+            ..Default::default()
+        };
+        if let Some(b) = self.boards.get_mut(&scenario::key(name)) {
+            b.loading = true;
+        }
+        self.board.submit(entry, replay);
+    }
+
+    /// Fetch a scenario's global board if missing or stale.
+    pub fn ensure_board(&mut self, name: &str, force: bool) {
+        if !self.board.online() {
+            return;
+        }
+        let k = scenario::key(name);
+        let st = self.boards.entry(k.clone()).or_default();
+        if st.loading || (!force && st.fetched > 0.0 && get_time() - st.fetched < 60.0) {
+            return;
+        }
+        st.loading = true;
+        self.board.fetch_top(&k);
+    }
+
+    pub fn open_replay(&mut self, replay: Replay, label: String) {
+        let scn = replay.scenario();
+        let mut game = Game::new(scn, 0.0, false, 1);
+        game.phase = crate::game::Phase::Running;
+        let from = if self.screen == Screen::Replay { self.viewer.as_ref().map(|v| v.from).unwrap_or(Screen::Menu) } else { self.screen };
+        self.viewer = Some(ReplayView {
+            replay,
+            game,
+            t: 0.0,
+            playing: true,
+            speed: 1.0,
+            from,
+            label,
+            next_event: 0,
+            hitmarker: 0.0,
+            hitmarker_kill: false,
+        });
+        self.screen = Screen::Replay;
+        self.set_grab(false);
+    }
+
+    pub fn open_local_replay(&mut self, rel: &str, label: String) {
+        match replay_mod::load(&self.paths.stats, rel) {
+            Ok(r) => self.open_replay(r, label),
+            Err(e) => self.toast(e),
+        }
     }
 
     // ----------------------------------------------------------------- frame
@@ -437,9 +651,10 @@ impl App {
             Screen::Playing => self.frame_playing(dt),
             Screen::Results => self.frame_results(),
             Screen::Menu => self.frame_menu(),
+            Screen::Replay => self.frame_replay(dt),
         }
 
-        if self.ui.clicks > 0 && self.settings.ui_sounds && self.screen != Screen::Playing {
+        if self.ui.clicks > 0 && self.settings.ui_sounds && !matches!(self.screen, Screen::Playing | Screen::Replay) {
             self.sounds.play("ui", self.settings.volume * 0.45);
         }
         if !self.grabbed {

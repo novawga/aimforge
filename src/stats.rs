@@ -18,6 +18,9 @@ pub struct RunRecord {
     pub date: String,
     pub cm360: f32,
     pub hfov: f32,
+    /// Replay file, relative to stats/replays.
+    #[serde(default)]
+    pub replay: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -86,6 +89,23 @@ impl History {
         let k = crate::scenario::key(name);
         self.names.insert(k.clone(), name.to_string());
         self.runs.entry(k).or_default().push(rec);
+        self.save();
+    }
+
+    /// Keep replays for the 10 best and 3 most recent runs of a scenario; delete the rest.
+    pub fn prune_replays(&mut self, name: &str, replay_dir: &Path) {
+        let Some(runs) = self.runs.get_mut(&crate::scenario::key(name)) else { return };
+        let mut by_score: Vec<usize> = (0..runs.len()).filter(|&i| runs[i].replay.is_some()).collect();
+        by_score.sort_by(|&a, &b| runs[b].score.partial_cmp(&runs[a].score).unwrap_or(std::cmp::Ordering::Equal));
+        let mut keep: std::collections::HashSet<usize> = by_score.iter().take(10).copied().collect();
+        keep.extend(by_score.iter().copied().filter(|&i| i + 3 >= runs.len()));
+        for i in by_score {
+            if !keep.contains(&i) {
+                if let Some(f) = runs[i].replay.take() {
+                    let _ = std::fs::remove_file(replay_dir.join(f));
+                }
+            }
+        }
         self.save();
     }
 

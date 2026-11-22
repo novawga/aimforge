@@ -820,6 +820,26 @@ impl App {
         changed |= sw!(self, f, "Health bars", Some("On targets that take more than one hit"), show_target_health);
         changed |= sw!(self, f, "Hitmarker", None, hitmarker);
         changed |= sw!(self, f, "Show FPS", None, show_fps);
+
+        self.heading(f, "Leaderboards", Some("Your best run per scenario appears on the global board, with its replay."));
+        let h = self.label(f, "Leaderboard name", Some("Shown next to your scores (max 24 characters)"));
+        if f.vis(h) {
+            let id = hash_id("lbname_settings");
+            let mut v = if self.ui.focus == Some(id) { std::mem::take(&mut self.ui.buf) } else { self.settings.player_name.clone() };
+            let done = self.ui.text_field(id, f.ctrl(260.0, 38.0, h), &mut v, "Pick a name");
+            if self.ui.focus == Some(id) {
+                self.ui.buf = v;
+            } else if done {
+                let n = crate::leaderboard::clean_name(&v);
+                if n != self.settings.player_name {
+                    self.settings.player_name = n;
+                    changed = true;
+                }
+                self.ui.buf.clear();
+            }
+        }
+        self.end_row(f, h);
+        changed |= sw!(self, f, "Submit runs to the online leaderboard", Some("Off keeps everything on this PC"), submit_scores);
         changed
     }
 

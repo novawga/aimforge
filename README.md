@@ -3,6 +3,7 @@
 A KovaaK's-style 3D aim trainer written from scratch in Rust. Flicking, tracking, target switching, click timing and strafe aim, all driven by plain-text scenario files. It plays KovaaK's playlists directly.
 
 - **Updates itself** from GitHub releases, like a normal launcher.
+- **Leaderboards and replays**: every run is recorded (about 100 KB per minute) and can be watched back in first person with pause, seek and 0.25×–2× speed. Each scenario has a global board (best run per player, with score, accuracy, kills, sens and a Watch button) plus your own top runs. The results screen shows your rank straight away.
 - **Every playlist scenario is playable.** Drop KovaaK's playlists (`.json` or legacy `.plo`) into `playlists/`. Scenarios you've written or that ship built-in are used as-is; anything else is generated from its name (`1w4ts reload 30% smaller`, `B180T Voltaic Easy`, `Close Fast Strafes Invincible`...). This build was tested against 1,096 unique scenario names from 189 community playlists.
 - **Your sensitivity, exactly.** Enter your CS2/Apex/KovaaK's, Valorant or Overwatch sens (or cm/360 directly) plus DPI. Mouse input is raw and processed in order, so a click lands where your crosshair was at that instant, even mid-frame.
 - **Built-in Voltaic benchmark set**: Pasu, B180, Popcorn, ww3t, 1w4ts, Smoothbot, Air Angelic 4, PGTI, FuglaaXYZ, Ground Plaza, Air, patTS, voxTS, kinTS, B180T, psalmTS, plus Tile Frenzy, 1wall 6targets small, Close Long Strafes, Floating Heads Timing, Strafe Gallery and Pokeball Frenzy.
@@ -26,6 +27,16 @@ On first launch it downloads the community playlists from [riddbtw/kovaaks-playl
 AimForge checks this repo's releases every time it starts. When there's a newer version it downloads it in the background, checks its SHA-256, swaps it in and restarts. You keep your settings, stats and files. Turn this off in *Settings → Files & controls*.
 
 To publish a new version: bump `version` in `Cargo.toml` and push to `main`. The `release` workflow notices the new version, builds Windows, macOS and Linux binaries and attaches them to a GitHub release. Every installed copy picks it up on its next launch.
+
+### Online leaderboards (Supabase)
+
+Leaderboards use a free [Supabase](https://supabase.com) project:
+
+1. Create a project, open **SQL Editor**, paste `supabase/setup.sql` and click **Run**.
+2. In **Project Settings → API**, copy the **Project URL** and the **anon public** key.
+3. Put them in `src/leaderboard.rs` (`DEFAULT_URL` / `DEFAULT_KEY`) and push a new version, or set `board_url` / `board_key` in `settings.toml` for just your copy.
+
+The anon key is meant to be public: row-level security only lets clients read scores and add new ones. Scores aren't verified, so this suits friends and communities, not prize competitions.
 
 ## Build from source
 
@@ -93,7 +104,7 @@ PLAYLIST_DIR=playlists cargo test --no-default-features -- --include-ignored --n
                                                        # generate + simulate every scenario in your playlists
 ```
 
-Code map: `app.rs` state and run control · `screens/` menu, settings, in-game HUD, results · `map.rs` sky + surface shaders and map presets · `audio.rs` sound synthesis · `theme.rs` menu themes · `crosshair.rs` Valorant crosshair model + codes · `game.rs` simulation (player, weapons, target movement, hit detection, scoring) · `synth.rs` name-to-scenario generator · `scenario.rs` file format + library · `playlist.rs` JSON/GVAS import · `render.rs` 3D + crosshair · `input.rs` ordered raw mouse input · `ui.rs` immediate-mode widgets.
+Code map: `app.rs` state and run control · `screens/` menu, settings, in-game HUD, results · `map.rs` sky + surface shaders and map presets · `audio.rs` sound synthesis · `theme.rs` menu themes · `crosshair.rs` Valorant crosshair model + codes · `game.rs` simulation (player, weapons, target movement, hit detection, scoring) · `synth.rs` name-to-scenario generator · `scenario.rs` file format + library · `playlist.rs` JSON/GVAS import · `render.rs` 3D + crosshair · `replay.rs` run recording + playback format · `leaderboard.rs` Supabase client · `input.rs` ordered raw mouse input · `ui.rs` immediate-mode widgets.
 
 ## License
 

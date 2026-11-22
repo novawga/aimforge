@@ -110,6 +110,15 @@ pub struct Settings {
     pub game_sounds: bool,
     /// Soft clicks on menu buttons.
     pub ui_sounds: bool,
+    /// Name shown on online leaderboards.
+    pub player_name: String,
+    /// Random per-install id that groups your runs on leaderboards.
+    pub player_id: String,
+    /// Send scores (and replays) to the online leaderboard after each run.
+    pub submit_scores: bool,
+    /// Optional override of the leaderboard server (Supabase project URL + anon key).
+    pub board_url: String,
+    pub board_key: String,
 }
 
 impl Default for Settings {
@@ -142,6 +151,11 @@ impl Default for Settings {
             kill_sound_name: "Ding".into(),
             game_sounds: true,
             ui_sounds: true,
+            player_name: String::new(),
+            player_id: String::new(),
+            submit_scores: true,
+            board_url: String::new(),
+            board_key: String::new(),
         }
     }
 }
