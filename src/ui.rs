@@ -31,6 +31,8 @@ pub struct Ui {
     pub wheel: f32,
     pub chars: Vec<char>,
     pub focus: Option<u64>,
+    /// A text field had focus when this frame began.
+    pub focus_at_begin: bool,
     pub buf: String,
     pub drag: Option<u64>,
     pub consumed: bool,
@@ -89,6 +91,7 @@ impl Ui {
             wheel: 0.0,
             chars: vec![],
             focus: None,
+            focus_at_begin: false,
             buf: String::new(),
             drag: None,
             consumed: false,
@@ -98,6 +101,7 @@ impl Ui {
     }
 
     pub fn begin(&mut self) {
+        self.focus_at_begin = self.focus.is_some();
         self.scale = (screen_height() / 1080.0).clamp(0.5, 3.0);
         self.mouse = mouse_position().into();
         self.clicked = is_mouse_button_pressed(MouseButton::Left);
@@ -113,6 +117,12 @@ impl Ui {
         if !self.down {
             self.drag = None;
         }
+    }
+
+    /// True while the user is typing in a text field (this frame or the start of it),
+    /// so screen hotkeys must stay quiet.
+    pub fn typing(&self) -> bool {
+        self.focus_at_begin || self.focus.is_some()
     }
 
     pub fn s(&self, v: f32) -> f32 {
@@ -385,6 +395,15 @@ impl Ui {
 
     /// Text input with Ctrl+V paste. Returns true on Enter or when focus leaves.
     pub fn text_field(&mut self, id: u64, r: Rect, value: &mut String, placeholder: &str) -> bool {
+        self.text_field_ex(id, r, value, placeholder, false)
+    }
+
+    /// Text input that shows dots instead of the characters.
+    pub fn password_field(&mut self, id: u64, r: Rect, value: &mut String, placeholder: &str) -> bool {
+        self.text_field_ex(id, r, value, placeholder, true)
+    }
+
+    pub fn text_field_ex(&mut self, id: u64, r: Rect, value: &mut String, placeholder: &str, mask: bool) -> bool {
         let t = theme::t();
         let focused = self.focus == Some(id);
         let rad = self.s(3.0);
@@ -437,7 +456,8 @@ impl Ui {
         if value.is_empty() && self.focus != Some(id) {
             self.text_mid(placeholder, r.x + pad, r, size::BODY, t.text_faint, false);
         } else {
-            let shown = self.fit_tail(value, size::BODY, r.w - pad * 2.0 - self.s(6.0));
+            let src = if mask { "\u{2022}".repeat(value.chars().count()) } else { value.clone() };
+            let shown = self.fit_tail(&src, size::BODY, r.w - pad * 2.0 - self.s(6.0));
             let w = self.text_mid(&shown, r.x + pad, r, size::BODY, t.text, false);
             if self.focus == Some(id) && (get_time() * 1.6).fract() < 0.6 {
                 let ch = self.s(size::BODY + 3.0);

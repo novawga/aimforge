@@ -52,6 +52,8 @@ pub enum Msg {
     Top { scenario: String, result: Result<Vec<Entry>, String> },
     Submitted { scenario: String, score: f32, result: Result<(usize, usize), String> },
     Replay { label: String, result: Result<Vec<u8>, String> },
+    /// Sign-in or account creation finished: (player id, display name).
+    Account { result: Result<(String, String), String> },
 }
 
 pub struct Client {
@@ -147,6 +149,50 @@ impl Config {
         Ok(())
     }
 
+    /// Call a Postgres function (see supabase/accounts.sql) and return its JSON.
+    fn rpc(&self, func: &str, args: serde_json::Value) -> Result<serde_json::Value, String> {
+        let resp = self
+            .post(&format!("/rest/v1/rpc/{func}"))
+            .set("Content-Type", "application/json")
+            .send_string(&args.to_string());
+        match resp {
+            Ok(r) => serde_json::from_str(&r.into_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string()),
+            Err(ureq::Error::Status(code, r)) => {
+                let body: serde_json::Value = serde_json::from_str(&r.into_string().unwrap_or_default()).unwrap_or_default();
+                let pg = body.get("code").and_then(|c| c.as_str()).unwrap_or("");
+                let msg = body.get("message").and_then(|m| m.as_str()).unwrap_or("");
+                if code == 404 || pg == "PGRST202" {
+                    Err("Accounts aren't set up on the server yet. Play as a guest for now.".into())
+                } else if pg == "P0001" && !msg.is_empty() {
+                    Err(msg.to_string())
+                } else {
+                    Err(format!("Server error {code}{}", if msg.is_empty() { String::new() } else { format!(": {msg}") }))
+                }
+            }
+            Err(e) => Err(format!("Can't reach the server ({e})")),
+        }
+    }
+
+    fn account(v: serde_json::Value) -> Result<(String, String), String> {
+        let id = v.get("id").and_then(|x| x.as_str()).unwrap_or_default().to_string();
+        let name = v.get("name").and_then(|x| x.as_str()).unwrap_or_default().to_string();
+        if id.len() == 36 && !name.is_empty() {
+            Ok((id, name))
+        } else {
+            Err("Unexpected reply from the server".into())
+        }
+    }
+
+    pub fn register(&self, id: &str, name: &str, pass: &str) -> Result<(String, String), String> {
+        let v = self.rpc("register_player", serde_json::json!({ "p_id": id, "p_name": name, "p_pass": pass }))?;
+        Self::account(v)
+    }
+
+    pub fn login(&self, name: &str, pass: &str) -> Result<(String, String), String> {
+        let v = self.rpc("login_player", serde_json::json!({ "p_name": name, "p_pass": pass }))?;
+        Self::account(v)
+    }
+
     pub fn replay(&self, path: &str) -> Result<Vec<u8>, String> {
         let url = format!("/storage/v1/object/public/replays/{}", enc_path(path));
         let resp = self.get(&url).call().map_err(net_err)?;
@@ -204,6 +250,20 @@ impl Client {
             let top = cfg.top(&scenario, 100);
             let _ = tx.send(Msg::Submitted { scenario: scenario.clone(), score, result });
             let _ = tx.send(Msg::Top { scenario, result: top });
+        });
+    }
+
+    /// Create an account (`create`) or sign in, in the background; answers with `Msg::Account`.
+    pub fn account(&self, create: bool, id: &str, name: &str, pass: &str) {
+        let tx = self.tx.clone();
+        let Some(cfg) = self.cfg.clone() else {
+            let _ = tx.send(Msg::Account { result: Err("Online features are off in this build".into()) });
+            return;
+        };
+        let (id, name, pass) = (id.to_string(), name.to_string(), pass.to_string());
+        std::thread::spawn(move || {
+            let result = if create { cfg.register(&id, &name, &pass) } else { cfg.login(&name, &pass) };
+            let _ = tx.send(Msg::Account { result });
         });
     }
 

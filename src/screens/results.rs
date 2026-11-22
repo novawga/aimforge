@@ -102,7 +102,7 @@ impl App {
                 let (line, col) = match &submit {
                     SubmitState::Offline => ("Online leaderboards aren't connected yet. Your run and replay are saved locally.".to_string(), t.text_faint),
                     SubmitState::Disabled => ("Score submission is off (Settings > Gameplay).".to_string(), t.text_faint),
-                    SubmitState::NeedName => ("Choose a name to put this run on the leaderboard.".to_string(), t.text_dim),
+                    SubmitState::NeedName => ("Playing as guest: this run is saved on this PC.".to_string(), t.text_dim),
                     SubmitState::Sending => ("Submitting...".to_string(), t.text_dim),
                     SubmitState::Done { rank, total } => (format!("You're #{rank} of {total} players"), t.good),
                     SubmitState::Failed(e) => (format!("Not submitted: {e}"), t.bad),
@@ -111,16 +111,8 @@ impl App {
                 self.ui.strong(&line, inner.x, inner.y, size::SMALL, col);
                 let mut top = inner.y + sc(30.0);
                 if submit == SubmitState::NeedName {
-                    if self.name_prompt(inner.x, top, inner.w.min(sc(460.0))) {
-                        let r = self.result.as_ref().unwrap();
-                        let (n, rec) = (r.name.clone(), r.rec.clone());
-                        let bytes = r.replay.as_ref().map(|rp| rp.encode());
-                        self.submit_run(&n, &rec, bytes);
-                        if let Some(r) = &mut self.result {
-                            r.submit = SubmitState::Sending;
-                        }
-                    }
-                    top += sc(76.0);
+                    self.sign_in_prompt(inner.x, top, inner.w.min(sc(560.0)), "Sign in and this run goes on the global board.", Screen::Results);
+                    top += sc(54.0);
                 }
                 if self.board.online() {
                     let rows: Vec<_> = self.global_rows(&name).into_iter().take(50).collect();
@@ -186,17 +178,19 @@ impl App {
             size::SMALL,
             t.text_faint,
         );
-        if is_key_pressed(KeyCode::R) || (is_key_pressed(KeyCode::Space) && next.is_none()) {
-            act = 1;
-        }
-        if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter) {
-            act = if next.is_some() { 2 } else { 1 };
-        }
-        if is_key_pressed(KeyCode::Escape) {
-            act = 3;
-        }
-        if is_key_pressed(KeyCode::V) && has_replay {
-            act = 4;
+        if !self.ui.typing() {
+            if is_key_pressed(KeyCode::R) || (is_key_pressed(KeyCode::Space) && next.is_none()) {
+                act = 1;
+            }
+            if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter) {
+                act = if next.is_some() { 2 } else { 1 };
+            }
+            if is_key_pressed(KeyCode::Escape) {
+                act = 3;
+            }
+            if is_key_pressed(KeyCode::V) && has_replay {
+                act = 4;
+            }
         }
         match act {
             4 => {

@@ -822,20 +822,21 @@ impl App {
         changed |= sw!(self, f, "Show FPS", None, show_fps);
 
         self.heading(f, "Leaderboards", Some("Your best run per scenario appears on the global board, with its replay."));
-        let h = self.label(f, "Leaderboard name", Some("Shown next to your scores (max 24 characters)"));
+        let (title, sub) = if self.settings.account {
+            (format!("Signed in as {}", self.settings.player_name), "Your runs and replays go on the global boards")
+        } else {
+            ("Playing as guest".to_string(), "Sign in to put your runs on the global boards")
+        };
+        let h = self.label(f, &title, Some(sub));
         if f.vis(h) {
-            let id = hash_id("lbname_settings");
-            let mut v = if self.ui.focus == Some(id) { std::mem::take(&mut self.ui.buf) } else { self.settings.player_name.clone() };
-            let done = self.ui.text_field(id, f.ctrl(260.0, 38.0, h), &mut v, "Pick a name");
-            if self.ui.focus == Some(id) {
-                self.ui.buf = v;
-            } else if done {
-                let n = crate::leaderboard::clean_name(&v);
-                if n != self.settings.player_name {
-                    self.settings.player_name = n;
-                    changed = true;
+            let label = if self.settings.account { "Sign out" } else { "Sign in" };
+            if self.ui.button(f.ctrl(140.0, 38.0, h), label, if self.settings.account { Kind::Secondary } else { Kind::Primary }) {
+                if self.settings.account {
+                    self.sign_out();
+                    self.toast("Signed out");
+                } else {
+                    self.open_sign_in(Some(crate::app::Screen::Menu));
                 }
-                self.ui.buf.clear();
             }
         }
         self.end_row(f, h);

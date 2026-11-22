@@ -4,6 +4,7 @@ A KovaaK's-style 3D aim trainer written from scratch in Rust. Flicking, tracking
 
 - **Updates itself** from GitHub releases, like a normal launcher.
 - **Leaderboards and replays**: every run is recorded (about 100 KB per minute) and can be watched back in first person with pause, seek and 0.25×–2× speed. Each scenario has a global board (best run per player, with score, accuracy, kills, sens and a Watch button) plus your own top runs. The results screen shows your rank straight away.
+- **Accounts**: sign in (or play as a guest) on launch; your name is reserved and works on any PC. Startup shows an animated loading range while scenarios, sounds and shaders load.
 - **Every playlist scenario is playable.** Drop KovaaK's playlists (`.json` or legacy `.plo`) into `playlists/`. Scenarios you've written or that ship built-in are used as-is; anything else is generated from its name (`1w4ts reload 30% smaller`, `B180T Voltaic Easy`, `Close Fast Strafes Invincible`...). This build was tested against 1,096 unique scenario names from 189 community playlists.
 - **Your sensitivity, exactly.** Enter your CS2/Apex/KovaaK's, Valorant or Overwatch sens (or cm/360 directly) plus DPI. Mouse input is raw and processed in order, so a click lands where your crosshair was at that instant, even mid-frame.
 - **Built-in Voltaic benchmark set**: Pasu, B180, Popcorn, ww3t, 1w4ts, Smoothbot, Air Angelic 4, PGTI, FuglaaXYZ, Ground Plaza, Air, patTS, voxTS, kinTS, B180T, psalmTS, plus Tile Frenzy, 1wall 6targets small, Close Long Strafes, Floating Heads Timing, Strafe Gallery and Pokeball Frenzy.
@@ -32,11 +33,11 @@ To publish a new version: bump `version` in `Cargo.toml` and push to `main`. The
 
 Leaderboards use a free [Supabase](https://supabase.com) project:
 
-1. Create a project, open **SQL Editor**, paste `supabase/setup.sql` and click **Run**.
-2. In **Project Settings → API**, copy the **Project URL** and the **anon public** key.
+1. Create a project, open **SQL Editor**, paste `supabase/setup.sql` and click **Run**. Then do the same with `supabase/accounts.sql` (player accounts for the sign-in screen).
+2. In **Project Settings → API Keys**, copy the **Project URL** and the **publishable** (or legacy anon) key.
 3. Put them in `src/leaderboard.rs` (`DEFAULT_URL` / `DEFAULT_KEY`) and push a new version, or set `board_url` / `board_key` in `settings.toml` for just your copy.
 
-The anon key is meant to be public: row-level security only lets clients read scores and add new ones. Scores aren't verified, so this suits friends and communities, not prize competitions.
+The publishable key is meant to be public: row-level security only lets clients read scores and add new ones, and the accounts table can only be reached through the sign-in functions (passwords are stored as bcrypt hashes). Scores aren't verified, so this suits friends and communities, not prize competitions.
 
 ## Build from source
 

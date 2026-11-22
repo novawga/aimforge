@@ -21,6 +21,7 @@ pub enum Screen {
     Playing,
     Results,
     Replay,
+    SignIn,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -198,14 +199,61 @@ pub struct App {
     pub board_scroll: f32,
     pub board_list_scroll: f32,
     pub board_search: String,
-    pub name_buf: String,
     pub recorder: Option<Recorder>,
     pub viewer: Option<ReplayView>,
     pub results_tab: usize,
+    pub signin: SignInState,
+    /// When the app appeared, for the fade in from the loading screen.
+    pub fade_in: f64,
 }
 
-impl App {
-    pub async fn new() -> App {
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum SignInMode {
+    #[default]
+    SignIn,
+    Create,
+}
+
+#[derive(Default)]
+pub struct SignInState {
+    pub mode: SignInMode,
+    pub name: String,
+    pub pass: String,
+    pub pass2: String,
+    pub busy: bool,
+    pub error: Option<String>,
+    /// Where to go after signing in (None = menu).
+    pub back_to: Option<Screen>,
+    /// Put the cursor in the first empty field on the next frame.
+    pub autofocus: bool,
+}
+
+/// Startup work, done one step per frame so the loading screen can animate.
+pub struct Boot {
+    step: usize,
+    pub ui: Ui,
+    paths: Paths,
+    settings: Settings,
+    lib: Option<Library>,
+    playlists: Vec<Playlist>,
+    themes: Vec<NamedTheme>,
+    errors: Vec<String>,
+    history: Option<History>,
+    sounds: Option<audio::Sounds>,
+    renderer: Option<render::Renderer>,
+}
+
+impl Boot {
+    pub const STEPS: [&'static str; 6] = [
+        "Loading scenarios",
+        "Loading playlists and themes",
+        "Reading your stats",
+        "Tuning sounds",
+        "Building the range",
+        "Ready",
+    ];
+
+    pub fn new() -> Boot {
         let paths = crate::paths();
         for d in [&paths.scenarios, &paths.playlists, &paths.stats, &paths.themes, &paths.sounds] {
             let _ = std::fs::create_dir_all(d);
@@ -215,29 +263,90 @@ impl App {
         if let Some(c) = settings.target_color.take() {
             settings.map.ball = c;
         }
-        let lib = Library::load(&paths.scenarios);
-        let (playlists, pl_err) = playlist::load_dir(&paths.playlists);
-        let (theme_files, th_err) = theme::load_dir(&paths.themes);
-        let history = History::load(&paths.stats);
-        let mut load_errors = lib.errors.clone();
-        load_errors.extend(pl_err);
-        load_errors.extend(th_err);
-        let mut themes = theme::builtins();
-        themes.extend(theme_files);
-        let mut app = App {
+        // Built-in themes right away so the loading screen already has the player's colours.
+        let themes = theme::builtins();
+        if let Some(t) = themes.iter().find(|t| t.name.eq_ignore_ascii_case(&settings.theme)) {
+            theme::set(t.theme);
+        }
+        Boot {
+            step: 0,
             ui: Ui::new(&paths.assets),
+            paths,
+            settings,
+            lib: None,
+            playlists: vec![],
+            themes,
+            errors: vec![],
+            history: None,
+            sounds: None,
+            renderer: None,
+        }
+    }
+
+    pub fn progress(&self) -> f32 {
+        self.step as f32 / (Self::STEPS.len() - 1) as f32
+    }
+    pub fn done(&self) -> bool {
+        self.step >= Self::STEPS.len() - 1
+    }
+    pub fn ball(&self) -> Color {
+        let b = self.settings.map.ball;
+        Color::from_rgba(b[0], b[1], b[2], 255)
+    }
+
+    /// Do the next piece of startup work.
+    pub async fn step(&mut self) {
+        match self.step {
+            0 => {
+                let lib = Library::load(&self.paths.scenarios);
+                self.errors.extend(lib.errors.clone());
+                self.lib = Some(lib);
+            }
+            1 => {
+                let (pl, pl_err) = playlist::load_dir(&self.paths.playlists);
+                let (tf, th_err) = theme::load_dir(&self.paths.themes);
+                self.playlists = pl;
+                self.themes.extend(tf);
+                self.errors.extend(pl_err);
+                self.errors.extend(th_err);
+            }
+            2 => self.history = Some(History::load(&self.paths.stats)),
+            3 => self.sounds = Some(audio::Sounds::load(&self.paths.sounds).await),
+            4 => self.renderer = Some(render::Renderer::new()),
+            _ => {}
+        }
+        self.step = (self.step + 1).min(Self::STEPS.len() - 1);
+    }
+}
+
+impl App {
+    /// Load everything in one go (no loading screen).
+    #[allow(dead_code)]
+    pub async fn new() -> App {
+        let mut b = Boot::new();
+        while !b.done() {
+            b.step().await;
+        }
+        App::from_boot(b)
+    }
+
+    pub fn from_boot(b: Boot) -> App {
+        let Boot { ui, paths, settings, lib, playlists, themes, errors, history, sounds, renderer, .. } = b;
+        let needs_sign_in = !settings.account && !settings.guest;
+        let mut app = App {
+            ui,
             input: Input::new(),
-            renderer: render::Renderer::new(),
-            sounds: audio::Sounds::load(&paths.sounds).await,
+            renderer: renderer.unwrap_or_else(render::Renderer::new),
+            sounds: sounds.expect("sounds load during boot"),
             paths,
             settings,
             settings_dirty: false,
-            lib,
+            lib: lib.expect("scenarios load during boot"),
             playlists,
             themes,
-            load_errors,
-            history,
-            screen: Screen::Menu,
+            load_errors: errors,
+            history: history.unwrap_or_default(),
+            screen: if needs_sign_in { Screen::SignIn } else { Screen::Menu },
             tab: Tab::Scenarios,
             settings_page: SettingsPage::Sensitivity,
             entries: vec![],
@@ -276,16 +385,23 @@ impl App {
             board_scroll: 0.0,
             board_list_scroll: 0.0,
             board_search: String::new(),
-            name_buf: String::new(),
             recorder: None,
             viewer: None,
             results_tab: 0,
+            signin: SignInState::default(),
+            fade_in: get_time(),
         };
         app.board = leaderboard::Client::new(&app.settings.board_url, &app.settings.board_key);
         if app.settings.player_id.len() != 36 {
             app.settings.player_id = leaderboard::new_player_id();
             app.settings.save(&app.paths.settings);
         }
+        // Players who picked a name before accounts existed: offer it as the new account name.
+        if needs_sign_in && !app.settings.player_name.is_empty() {
+            app.signin.mode = SignInMode::Create;
+            app.signin.name = app.settings.player_name.clone();
+        }
+        app.signin.autofocus = needs_sign_in;
         app.apply_theme();
         app.refresh_entries();
         if let Some(v) = app.updater.just_updated.clone() {
@@ -354,6 +470,7 @@ impl App {
                         }
                     }
                 }
+                Msg::Account { result } => self.signed_in(result),
                 Msg::Replay { label, result } => match result.and_then(|b| Replay::decode(&b)) {
                     Ok(r) => self.open_replay(r, label),
                     Err(e) => self.toast(format!("Couldn't load replay: {e}")),
@@ -546,7 +663,7 @@ impl App {
             SubmitState::Offline
         } else if !self.settings.submit_scores {
             SubmitState::Disabled
-        } else if self.settings.player_name.trim().is_empty() {
+        } else if !self.settings.account || self.settings.player_name.trim().is_empty() {
             SubmitState::NeedName
         } else if rec.shots == 0 {
             SubmitState::Failed("no shots fired, not submitted".into())
@@ -652,6 +769,7 @@ impl App {
             Screen::Results => self.frame_results(),
             Screen::Menu => self.frame_menu(),
             Screen::Replay => self.frame_replay(dt),
+            Screen::SignIn => self.frame_signin(),
         }
 
         if self.ui.clicks > 0 && self.settings.ui_sounds && !matches!(self.screen, Screen::Playing | Screen::Replay) {
@@ -669,6 +787,12 @@ impl App {
             self.settings_dirty = false;
         }
         self.draw_toast();
+        // Fade in from the loading screen.
+        let since = (get_time() - self.fade_in) as f32;
+        if since < 0.45 {
+            let a = 1.0 - (since / 0.45);
+            draw_rectangle(0.0, 0.0, screen_width(), screen_height(), theme::with_alpha(theme::t().bg, a * a));
+        }
     }
 
     fn draw_toast(&mut self) {

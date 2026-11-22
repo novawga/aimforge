@@ -1,6 +1,6 @@
 //! Leaderboards: global (online) and personal boards, shared table widget.
 
-use crate::app::{App, BoardMode};
+use crate::app::{App, BoardMode, Screen};
 use crate::scenario;
 use crate::theme;
 use crate::ui::{fmt_score, hash_id, rrect, size, Kind};
@@ -151,22 +151,16 @@ impl App {
         out
     }
 
-    /// Inline "choose a name" prompt. Returns true when a name was saved.
-    pub fn name_prompt(&mut self, x: f32, y: f32, w: f32) -> bool {
+    /// "Sign in" call to action for players without an account.
+    pub fn sign_in_prompt(&mut self, x: f32, y: f32, w: f32, msg: &str, back_to: Screen) {
         let t = theme::t();
         let s = self.ui.scale;
         let sc = |v: f32| (v * s).round();
-        self.ui.text("Pick a name for the leaderboards", x, y, size::SMALL, t.text_dim);
-        let field = Rect::new(x, y + sc(22.0), w - sc(110.0), sc(38.0));
-        let submitted = self.ui.text_field(hash_id("lbname"), field, &mut self.name_buf, "Your name (max 24)");
-        let save = self.ui.button(Rect::new(x + w - sc(100.0), y + sc(22.0), sc(100.0), sc(38.0)), "Save", Kind::Primary);
-        if (save || submitted) && !crate::leaderboard::clean_name(&self.name_buf).is_empty() {
-            self.settings.player_name = crate::leaderboard::clean_name(&self.name_buf);
-            self.settings_dirty = true;
-            self.name_buf.clear();
-            return true;
+        let line = self.ui.fit(msg, size::SMALL, w - sc(130.0), false);
+        self.ui.text(&line, x, y + sc(10.0), size::SMALL, t.text_dim);
+        if self.ui.button(Rect::new(x + w - sc(120.0), y, sc(120.0), sc(36.0)), "Sign in", Kind::Primary) {
+            self.open_sign_in(Some(back_to));
         }
-        false
     }
 
     pub fn page_boards(&mut self, r: Rect) {
@@ -262,11 +256,9 @@ impl App {
                     self.ensure_board(&name, true);
                 }
                 y += sc(32.0);
-                if self.settings.player_name.is_empty() {
-                    if self.name_prompt(d.x + pad, y, (d.w - pad * 2.0).min(sc(460.0))) {
-                        self.toast("Name saved. Your next runs go on the leaderboard.");
-                    }
-                    y += sc(76.0);
+                if !self.settings.account {
+                    self.sign_in_prompt(d.x + pad, y, (d.w - pad * 2.0).min(sc(560.0)), "Sign in to put your runs on this board.", Screen::Menu);
+                    y += sc(54.0);
                 }
                 self.global_rows(&name)
             }

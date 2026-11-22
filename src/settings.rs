@@ -114,6 +114,10 @@ pub struct Settings {
     pub player_name: String,
     /// Random per-install id that groups your runs on leaderboards.
     pub player_id: String,
+    /// Signed in to an online account (player_id / player_name come from it).
+    pub account: bool,
+    /// Chose "Play as guest" on the sign-in screen, so don't show it at launch.
+    pub guest: bool,
     /// Send scores (and replays) to the online leaderboard after each run.
     pub submit_scores: bool,
     /// Optional override of the leaderboard server (Supabase project URL + anon key).
@@ -153,6 +157,8 @@ impl Default for Settings {
             ui_sounds: true,
             player_name: String::new(),
             player_id: String::new(),
+            account: false,
+            guest: false,
             submit_scores: true,
             board_url: String::new(),
             board_key: String::new(),
