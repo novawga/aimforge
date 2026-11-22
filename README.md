@@ -23,14 +23,7 @@ On first launch it downloads the community playlists from [riddbtw/kovaaks-playl
 
 AimForge checks this repo's releases every time it starts. When there's a newer version it downloads it in the background, checks its SHA-256, swaps it in and restarts. You keep your settings, stats and files. Turn this off in *Settings → Files & controls*.
 
-To publish a new version: bump `version` in `Cargo.toml`, commit, then
-
-```
-git tag v0.3.0
-git push origin main --tags
-```
-
-The `release` workflow builds Windows, macOS and Linux binaries and attaches them to a GitHub release. Every installed copy picks it up on its next launch.
+To publish a new version: bump `version` in `Cargo.toml` and push to `main`. The `release` workflow notices the new version, builds Windows, macOS and Linux binaries and attaches them to a GitHub release. Every installed copy picks it up on its next launch.
 
 ## Build from source
 
