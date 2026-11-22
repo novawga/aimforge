@@ -141,6 +141,30 @@ pub struct BotGeom {
 }
 
 impl Target {
+    /// A static stand-in target for previews.
+    pub fn preview(id: u64, pos: Vec3, radius: f32) -> Target {
+        Target {
+            id,
+            pos,
+            vel: Vec3::ZERO,
+            desired: Vec3::ZERO,
+            radius,
+            health: 1.0,
+            max_health: 1.0,
+            spawn_time: 0.0,
+            last_damage: 0.0,
+            change_timer: 0.0,
+            blink_timer: 0.0,
+            flash: 0.0,
+            dir_sign: 1.0,
+            orbit_angle: 0.0,
+            orbit_radius: 0.0,
+            orbit_speed: 0.0,
+            slot: None,
+            damage_taken: 0.0,
+        }
+    }
+
     pub fn bot_geom(&self, cfg: &TargetCfg) -> BotGeom {
         let r = self.radius;
         let scale = r / cfg.radius.max(1e-4);

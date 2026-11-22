@@ -10,7 +10,9 @@ A KovaaK's-style 3D aim trainer written from scratch in Rust. Flicking, tracking
 - **Stats you own**: every run goes to `stats/history.json` plus a KovaaK's-style `stats/runs/<Scenario> - Challenge - <date> Stats.csv` with a kill-by-kill log.
 - **Valorant-ready**: pick Valorant (or CS2, Apex, Overwatch 2, KovaaK's, cm/360) and type the sens you use there; a table shows the same aim in every other game, with eDPI and cm/360. Fine-tune with ±1% buttons, even from the pause menu mid-practice.
 - **Valorant crosshairs**: the crosshair uses Valorant's model (inner/outer lines, centre dot, outlines). Paste a Valorant crosshair profile code to import it, or copy yours back out.
-- **Themes**: six built-in themes (Graphite, Valorant, Classic Grey, Midnight, Nord, Daylight) that restyle the menus, HUD and 3D room. Themes are small `.toml` files in `themes/`: import one from the clipboard, copy yours to share, or save and edit your own.
+- **Maps**: 17 procedural skies drawn on the GPU (clear day with clouds, golden hour, sunset, synthwave, aurora, starry night, nebula, deep space...), 11 floor/wall patterns (grid, neon grid, tiles, hex, marble, planks, concrete...), three arena layouts (room, open roof, open field), fog, and 16 one-click map presets. Target colour plus four shading styles (matte, glossy, flat, glow).
+- **Sound**: synthesized hit sounds (Tick, Ting, Pop, Click, Bubble, Wood, Thump) and kill sounds (Ding, Chime, Sparkle, Shatter, Coin, Zap, Kick), countdown/finish/high-score cues and soft menu clicks. Drop your own `.wav`/`.ogg` files into `sounds/` to add more.
+- **Menu themes**: six built-in themes (Graphite, Valorant, Classic Grey, Midnight, Nord, Daylight) that restyle the menus, HUD and 3D room. Themes are small `.toml` files in `themes/`: import one from the clipboard, copy yours to share, or save and edit your own.
 - **Customisable**: target colour, FOV, hit/kill sounds, hitmarker, health bars, auto-fire for tracking, V-Sync, MSAA.
 
 ## Download
@@ -41,7 +43,7 @@ The release binary ends up in `target/release/` (`aimforge.exe` on Windows). To 
 
 Copies run from `target/release` (a cargo build) don't self-update; use `git pull` and rebuild instead.
 
-Jump straight into a scenario: `aimforge --play "Pasu Voltaic"` (handy for desktop shortcuts).
+Jump straight into a scenario: `aimforge --play "Pasu Voltaic"`, and pick a map preset with `--map "Synthwave"` (handy for desktop shortcuts).
 
 ## Controls
 
@@ -61,7 +63,8 @@ Jump straight into a scenario: `aimforge --play "Pasu Voltaic"` (handy for deskt
 ```
 scenarios/   your .toml scenario files (sub-folders OK)  -> see SCENARIO_FORMAT.md
 playlists/   KovaaK's playlists: .json or .plo (sub-folders become groups)
-themes/      colour themes (.toml), see themes/Example - Forest.toml
+themes/      menu colour themes (.toml), see themes/Example - Forest.toml
+sounds/      your own hit/kill sounds (.wav / .ogg)
 stats/       history.json + per-run CSV files
 settings.toml
 assets/      optional font.ttf / font-bold.ttf to override the UI font
@@ -90,7 +93,7 @@ PLAYLIST_DIR=playlists cargo test --no-default-features -- --include-ignored --n
                                                        # generate + simulate every scenario in your playlists
 ```
 
-Code map: `app.rs` state and run control · `screens/` menu, settings, in-game HUD, results · `theme.rs` themes · `crosshair.rs` Valorant crosshair model + codes · `game.rs` simulation (player, weapons, target movement, hit detection, scoring) · `synth.rs` name-to-scenario generator · `scenario.rs` file format + library · `playlist.rs` JSON/GVAS import · `render.rs` 3D + crosshair · `input.rs` ordered raw mouse input · `ui.rs` immediate-mode widgets.
+Code map: `app.rs` state and run control · `screens/` menu, settings, in-game HUD, results · `map.rs` sky + surface shaders and map presets · `audio.rs` sound synthesis · `theme.rs` menu themes · `crosshair.rs` Valorant crosshair model + codes · `game.rs` simulation (player, weapons, target movement, hit detection, scoring) · `synth.rs` name-to-scenario generator · `scenario.rs` file format + library · `playlist.rs` JSON/GVAS import · `render.rs` 3D + crosshair · `input.rs` ordered raw mouse input · `ui.rs` immediate-mode widgets.
 
 ## License
 

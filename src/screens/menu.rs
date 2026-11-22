@@ -35,26 +35,8 @@ impl App {
             }
             x += w;
         }
-        // Sensitivity summary (click to edit).
-        let summary = format!(
-            "{}  ·  {} DPI  ·  {:.1} cm/360  ·  {}° FOV",
-            self.settings.sens_label(),
-            self.settings.dpi,
-            self.settings.cm_per_360(),
-            crate::settings::trim_num(self.settings.hfov as f64)
-        );
-        let w = self.ui.measure(&summary, size::SMALL, false) + sc(28.0);
-        let chip = Rect::new(sw - x0 - w, (bar_h - sc(32.0)) * 0.5, w, sc(32.0));
-        if self.ui.hover(chip) {
-            rrect(chip, sc(8.0), t.surface_hover);
-            self.ui.hand = true;
-        }
-        self.ui.text_mid(&summary, chip.x + sc(14.0), chip, size::SMALL, t.text_dim, false);
-        if self.ui.click_in(chip) {
-            self.tab = Tab::Settings;
-            self.settings_page = SettingsPage::Sensitivity;
-        }
-        // Update status, left of the summary.
+        let chip = Rect::new(sw - x0, 0.0, 0.0, bar_h);
+        // Update status, top right.
         use crate::update::Status;
         let upd = match &self.updater.status {
             Status::Downloading { version, done, total } => {
@@ -83,7 +65,7 @@ impl App {
                     }
                 }
             } else {
-                rrect(r, sc(8.0), t.surface_hover);
+                rrect(r, sc(3.0), t.surface_hover);
                 self.ui.text_mid(&label, r.x + sc(18.0), r, size::SMALL, t.text_dim, true);
             }
         }
@@ -188,9 +170,9 @@ impl App {
             let e = &self.entries[ei];
             let sel = sel_key.as_deref() == Some(e.lower.as_str());
             if sel {
-                rrect(rr, sc(7.0), t.surface_active);
+                rrect(rr, sc(3.0), t.surface_active);
             } else if self.ui.hover(rr) {
-                rrect(rr, sc(7.0), t.surface_hover);
+                rrect(rr, sc(3.0), t.surface_hover);
                 self.ui.hand = true;
             }
             let custom = e.source == Source::Custom;
@@ -274,33 +256,22 @@ impl App {
             self.ui.text(&line, d.x + pad, y, size::SMALL, t.text_dim);
             y += sc(20.0);
         }
-        y += sc(8.0);
-        for line in self.ui.wrap(&scn.description, size::BODY, inner_w, false).iter().take(3) {
-            self.ui.text(line, d.x + pad, y, size::BODY, t.text_dim);
-            y += sc(22.0);
+        y += sc(6.0);
+        for line in self.ui.wrap(&scn.description, size::SMALL, inner_w, false).iter().take(2) {
+            self.ui.text(line, d.x + pad, y, size::SMALL, t.text_faint);
+            y += sc(20.0);
         }
-        y += sc(20.0);
+        y += sc(22.0);
 
-        // Stat tiles.
+        // High score / plays (one quiet line).
         let runs = self.history.runs(&name);
         let best = self.history.best(&name);
-        let n10 = runs.len().min(10);
-        let avg = if n10 > 0 { Some(runs[runs.len() - n10..].iter().map(|r| r.score).sum::<f32>() / n10 as f32) } else { None };
-        let tile_w = (inner_w - sc(16.0)) / 3.0;
-        for (i, (label, value)) in [
-            ("High score", best.map(fmt_score)),
-            ("Plays", Some(runs.len().to_string())),
-            ("Last 10 avg", avg.map(fmt_score)),
-        ]
-        .iter()
-        .enumerate()
-        {
-            let tr = Rect::new(d.x + pad + i as f32 * (tile_w + sc(8.0)), y, tile_w, sc(68.0));
-            rrect(tr, sc(8.0), t.surface_hover);
-            self.ui.text(label, tr.x + sc(14.0), tr.y + sc(12.0), size::CAPTION, t.text_faint);
-            self.ui.strong(value.as_deref().unwrap_or("–"), tr.x + sc(14.0), tr.y + sc(32.0), 20.0, t.text);
-        }
-        y += sc(88.0);
+        self.ui.text("High score", d.x + pad, y, size::CAPTION, t.text_faint);
+        self.ui.text("Plays", d.x + pad + sc(170.0), y, size::CAPTION, t.text_faint);
+        y += sc(18.0);
+        self.ui.strong(&best.map(fmt_score).unwrap_or_else(|| "–".into()), d.x + pad, y, 26.0, t.text);
+        self.ui.strong(&runs.len().to_string(), d.x + pad + sc(170.0), y, 26.0, t.text);
+        y += sc(50.0);
 
         // Graph.
         let btn_area = sc(124.0);
@@ -407,9 +378,9 @@ impl App {
                         let rr = Rect::new(list.x + sc(8.0), y, list.w - sc(20.0), *h);
                         let sel = *i == self.pl_selected;
                         if sel {
-                            rrect(rr, sc(7.0), t.surface_active);
+                            rrect(rr, sc(3.0), t.surface_active);
                         } else if self.ui.hover(rr) {
-                            rrect(rr, sc(7.0), t.surface_hover);
+                            rrect(rr, sc(3.0), t.surface_hover);
                             self.ui.hand = true;
                         }
                         let fitted = self.ui.fit(label, size::BODY, rr.w - sc(64.0), false);
@@ -461,7 +432,7 @@ impl App {
             let rr = Rect::new(d.x + sc(12.0), y, d.w - sc(24.0), rh);
             let hov = self.ui.hover(rr);
             if hov {
-                rrect(rr, sc(7.0), t.surface_hover);
+                rrect(rr, sc(3.0), t.surface_hover);
             }
             let cat = self
                 .entries

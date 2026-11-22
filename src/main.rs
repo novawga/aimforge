@@ -8,6 +8,7 @@ mod audio;
 mod crosshair;
 mod game;
 mod input;
+mod map;
 mod playlist;
 mod render;
 mod scenario;
@@ -28,6 +29,7 @@ pub struct Paths {
     pub scenarios: PathBuf,
     pub playlists: PathBuf,
     pub themes: PathBuf,
+    pub sounds: PathBuf,
     pub stats: PathBuf,
     pub settings: PathBuf,
     pub assets: PathBuf,
@@ -60,6 +62,7 @@ pub fn paths() -> Paths {
         scenarios: root.join("scenarios"),
         playlists: root.join("playlists"),
         themes: root.join("themes"),
+        sounds: root.join("sounds"),
         stats: root.join("stats"),
         settings: root.join("settings.toml"),
         assets: root.join("assets"),
@@ -86,6 +89,12 @@ async fn main() {
     let mut app = app::App::new().await;
     // `aimforge --play "Scenario Name"` jumps straight into a scenario.
     let args: Vec<String> = std::env::args().collect();
+    // `--map "Synthwave"` applies a map preset.
+    if let Some(name) = args.iter().position(|a| a == "--map").and_then(|i| args.get(i + 1)) {
+        if let Some((_, cfg)) = map::presets().into_iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            app.settings.map = cfg;
+        }
+    }
     if let Some(i) = args.iter().position(|a| a == "--play") {
         if let Some(name) = args.get(i + 1) {
             app.start(name);

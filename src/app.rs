@@ -31,6 +31,8 @@ pub enum Tab {
 pub enum SettingsPage {
     Sensitivity,
     Crosshair,
+    Map,
+    Sound,
     Theme,
     Gameplay,
     VideoAudio,
@@ -38,9 +40,11 @@ pub enum SettingsPage {
 }
 
 impl SettingsPage {
-    pub const ALL: [SettingsPage; 6] = [
+    pub const ALL: [SettingsPage; 8] = [
         SettingsPage::Sensitivity,
         SettingsPage::Crosshair,
+        SettingsPage::Map,
+        SettingsPage::Sound,
         SettingsPage::Theme,
         SettingsPage::Gameplay,
         SettingsPage::VideoAudio,
@@ -50,9 +54,11 @@ impl SettingsPage {
         match self {
             SettingsPage::Sensitivity => "Sensitivity & FOV",
             SettingsPage::Crosshair => "Crosshair",
-            SettingsPage::Theme => "Theme",
+            SettingsPage::Map => "Map & targets",
+            SettingsPage::Sound => "Sound",
+            SettingsPage::Theme => "Menu theme",
             SettingsPage::Gameplay => "Gameplay",
-            SettingsPage::VideoAudio => "Video & audio",
+            SettingsPage::VideoAudio => "Video",
             SettingsPage::Files => "Files & controls",
         }
     }
@@ -144,10 +150,14 @@ pub struct App {
 impl App {
     pub async fn new() -> App {
         let paths = crate::paths();
-        for d in [&paths.scenarios, &paths.playlists, &paths.stats, &paths.themes] {
+        for d in [&paths.scenarios, &paths.playlists, &paths.stats, &paths.themes, &paths.sounds] {
             let _ = std::fs::create_dir_all(d);
         }
-        let settings = Settings::load(&paths.settings);
+        let mut settings = Settings::load(&paths.settings);
+        // v0.2 kept a target colour override in Settings; it now lives in the map.
+        if let Some(c) = settings.target_color.take() {
+            settings.map.ball = c;
+        }
         let lib = Library::load(&paths.scenarios);
         let (playlists, pl_err) = playlist::load_dir(&paths.playlists);
         let (theme_files, th_err) = theme::load_dir(&paths.themes);
@@ -161,7 +171,7 @@ impl App {
             ui: Ui::new(&paths.assets),
             input: Input::new(),
             renderer: render::Renderer::new(),
-            sounds: audio::Sounds::load().await,
+            sounds: audio::Sounds::load(&paths.sounds).await,
             paths,
             settings,
             settings_dirty: false,
@@ -393,6 +403,10 @@ impl App {
         let category = g.scn.category;
         let tracking = g.scn.weapon.mode == FireMode::Auto;
         let prev_best = self.history.best(&name);
+        if self.settings.game_sounds {
+            let best = prev_best.is_none_or(|b| rec.score > b) && rec.score > 0.0;
+            self.sounds.play(if best { "highscore" } else { "finish" }, self.settings.volume * 0.8);
+        }
         let csv = stats::write_csv(&self.paths.stats, &name, &rec, &g.kill_log, &self.settings.sens_label());
         self.history.add(&name, rec.clone());
         if !self.entries.iter().any(|e| e.lower == scenario::key(&name)) {
@@ -425,6 +439,9 @@ impl App {
             Screen::Menu => self.frame_menu(),
         }
 
+        if self.ui.clicks > 0 && self.settings.ui_sounds && self.screen != Screen::Playing {
+            self.sounds.play("ui", self.settings.volume * 0.45);
+        }
         if !self.grabbed {
             miniquad::window::set_mouse_cursor(if self.ui.hand {
                 miniquad::CursorIcon::Pointer

@@ -5,7 +5,7 @@ use crate::game::{GameEvent, MoveKeys, Phase};
 use crate::input::InputEv;
 use crate::render;
 use crate::scenario::FireMode;
-use crate::theme::{self, with_alpha};
+use crate::theme;
 use crate::ui::{fmt_score, hash_id, rrect, size, Kind};
 use macroquad::prelude::*;
 
@@ -52,37 +52,36 @@ impl App {
         let vol = self.settings.volume;
         let now = get_time();
         let tracking = g.scn.weapon.mode == FireMode::Auto;
+        let (hit_name, kill_name) = (self.settings.hit_sound_name.clone(), self.settings.kill_sound_name.clone());
         for ev in g.events.drain(..) {
-            if let GameEvent::Hit { kill, head } = ev {
+            if let GameEvent::Hit { kill, .. } = ev {
                 self.hitmarker = 1.0;
                 self.hitmarker_kill = kill;
-                if kill && self.settings.kill_sound {
-                    self.sounds.kill(vol);
-                } else if self.settings.hit_sound && (!tracking || now - self.last_hit_sound > 0.085) {
-                    if head {
-                        self.sounds.head(vol);
-                    } else {
-                        self.sounds.hit(vol * if tracking { 0.55 } else { 1.0 });
-                    }
+                if kill && self.settings.kill_sound && kill_name != "Off" {
+                    self.sounds.play(&kill_name, vol);
+                } else if self.settings.hit_sound && hit_name != "Off" && (!tracking || now - self.last_hit_sound > 0.085) {
+                    self.sounds.play(&hit_name, vol * if tracking { 0.5 } else { 0.9 });
                     self.last_hit_sound = now;
                 }
             }
         }
         self.hitmarker = (self.hitmarker - dt * 7.0).max(0.0);
-        if g.phase == Phase::Countdown {
-            let tick = g.countdown.ceil() as i32;
-            if tick != self.last_countdown_tick && tick > 0 {
-                self.last_countdown_tick = tick;
-                self.sounds.tick(vol);
+        if self.settings.game_sounds {
+            if g.phase == Phase::Countdown {
+                let tick = g.countdown.ceil() as i32;
+                if tick != self.last_countdown_tick && tick > 0 {
+                    self.last_countdown_tick = tick;
+                    self.sounds.play("count", vol * 0.7);
+                }
+            } else if self.last_countdown_tick > 0 && g.phase == Phase::Running {
+                self.last_countdown_tick = 0;
+                self.sounds.play("go", vol * 0.7);
             }
         }
         let finished = g.phase == Phase::Finished;
 
-        clear_background(theme::t().world_bg);
-        let cam = render::camera_for(g, &self.settings);
-        set_camera(&cam);
-        self.renderer.draw_world(g, &self.settings);
-        set_default_camera();
+        clear_background(BLACK);
+        let cam = self.renderer.draw_scene(g, &self.settings);
         self.draw_target_bars(&cam);
         self.draw_hud();
         self.settings.crosshair.draw(screen_width() * 0.5, screen_height() * 0.5, screen_height() / 1080.0);
@@ -129,79 +128,67 @@ impl App {
         }
     }
 
+    /// KovaaK's-style HUD: just text over the scene, no panels.
     fn draw_hud(&self) {
         let Some(g) = &self.game else { return };
         let t = theme::t();
         let ui = &self.ui;
-        let sw = screen_width();
+        let (sw, sh) = (screen_width(), screen_height());
         let sc = |v: f32| ui.s(v);
+        let white = Color::new(1.0, 1.0, 1.0, 0.95);
+        let soft = Color::new(1.0, 1.0, 1.0, 0.6);
 
-        // Centre: score + time with a progress line.
-        let w = sc(220.0);
-        let r = Rect::new(sw * 0.5 - w * 0.5, sc(20.0), w, sc(74.0));
-        rrect(r, sc(12.0), t.hud_bg);
-        ui.text_center(&fmt_score(g.score), sw * 0.5, r.y + sc(10.0), 30.0, t.text, true);
+        // Top centre: time, with score / accuracy either side.
         let tl = g.time_left();
         let time_str = format!("{}:{:04.1}", (tl / 60.0).floor() as i32, tl % 60.0);
-        let tcol = if tl < 5.0 && g.phase == Phase::Running { t.bad } else { t.text_dim };
-        ui.text_center(&time_str, sw * 0.5, r.y + sc(48.0), size::SMALL, tcol, false);
+        let tcol = if tl < 5.0 && g.phase == Phase::Running { t.bad } else { white };
+        ui.shadow_text(&time_str, sw * 0.5, sc(18.0), 34.0, tcol, true);
         let k = (g.time / g.scn.duration).clamp(0.0, 1.0);
-        let bar = Rect::new(r.x + sc(16.0), r.y + r.h - sc(5.0), r.w - sc(32.0), sc(2.0));
-        draw_rectangle(bar.x, bar.y, bar.w, bar.h, with_alpha(t.text, 0.12));
-        draw_rectangle(bar.x, bar.y, bar.w * k, bar.h, t.accent);
+        let bw = sc(120.0);
+        draw_rectangle(sw * 0.5 - bw * 0.5, sc(62.0), bw, sc(2.0), Color::new(1.0, 1.0, 1.0, 0.18));
+        draw_rectangle(sw * 0.5 - bw * 0.5, sc(62.0), bw * k, sc(2.0), Color::new(1.0, 1.0, 1.0, 0.8));
 
-        // Left: live stats.
-        let acc = format!("{:.1}%", g.accuracy() * 100.0);
-        let stats: Vec<(&str, String)> = if g.scn.targets.invincible {
+        let gap = sc(190.0);
+        ui.shadow_text("SCORE", sw * 0.5 - gap, sc(16.0), size::CAPTION, soft, true);
+        ui.shadow_text(&fmt_score(g.score), sw * 0.5 - gap, sc(32.0), 22.0, white, true);
+        ui.shadow_text("ACCURACY", sw * 0.5 + gap, sc(16.0), size::CAPTION, soft, true);
+        ui.shadow_text(&format!("{:.1}%", g.accuracy() * 100.0), sw * 0.5 + gap, sc(32.0), 22.0, white, true);
+
+        // Small extra line under the timer.
+        let extra = if g.scn.targets.invincible {
             let on = if g.time > 0.0 { g.on_target_time / g.time * 100.0 } else { 0.0 };
-            vec![("Accuracy", acc), ("On target", format!("{on:.0}%")), ("Damage", format!("{:.0}", g.damage_done))]
+            format!("{on:.0}% on target")
         } else {
             let kps = if g.time > 0.5 { g.kills as f32 / g.time } else { 0.0 };
-            vec![("Accuracy", acc), ("Kills", g.kills.to_string()), ("Kills/s", format!("{kps:.2}"))]
+            format!("{} kills  ·  {kps:.2}/s", g.kills)
         };
-        let cell = sc(96.0);
-        let lr = Rect::new(sc(20.0), sc(20.0), cell * stats.len() as f32 + sc(16.0), sc(64.0));
-        rrect(lr, sc(12.0), t.hud_bg);
-        for (i, (label, value)) in stats.iter().enumerate() {
-            let x = lr.x + sc(18.0) + i as f32 * cell;
-            ui.text(label, x, lr.y + sc(11.0), size::CAPTION, t.text_faint);
-            ui.strong(value, x, lr.y + sc(30.0), 18.0, t.text);
-        }
+        ui.shadow_text(&extra, sw * 0.5, sc(72.0), size::CAPTION, soft, false);
 
-        // Right: scenario, best, playlist.
-        let name = ui.fit(&g.scn.name, size::BODY, sc(380.0), true);
+        // Bottom: scenario + best (+ playlist position).
         let best = self.history.best(&g.scn.name).map(fmt_score).unwrap_or_else(|| "–".into());
-        let mut sub = format!("High score {best}");
+        let mut line = format!("{}  ·  best {best}", g.scn.name);
         if let Some(run) = &self.run {
             if let Some(p) = self.playlists.get(run.pl) {
-                sub = format!("{}  ·  {}/{}", sub, run.entry + 1, p.entries.len());
+                line = format!("{line}  ·  {}/{}", run.entry + 1, p.entries.len());
             }
         }
-        let rw = ui.measure(&name, size::BODY, true).max(ui.measure(&sub, size::SMALL, false)) + sc(36.0);
-        let rr = Rect::new(sw - sc(20.0) - rw, sc(20.0), rw, sc(64.0));
-        rrect(rr, sc(12.0), t.hud_bg);
-        ui.strong(&name, rr.x + sc(18.0), rr.y + sc(12.0), size::BODY, t.text);
-        ui.text(&sub, rr.x + sc(18.0), rr.y + sc(36.0), size::SMALL, t.text_dim);
+        let line = ui.fit(&line, size::SMALL, sw * 0.6, false);
+        ui.shadow_text(&line, sw * 0.5, sh - sc(36.0), size::SMALL, Color::new(1.0, 1.0, 1.0, 0.5), false);
 
         if g.scn.weapon.magazine > 0 {
             let txt = if g.time < g.reload_until { "Reloading".to_string() } else { format!("{} / {}", g.ammo, g.scn.weapon.magazine) };
-            ui.text_right(&txt, sw - sc(28.0), screen_height() - sc(56.0), 20.0, t.text, true);
+            ui.shadow_text(&txt, sw - sc(90.0), sh - sc(60.0), 20.0, white, true);
         }
 
         if g.phase == Phase::Countdown {
             let n = g.countdown.ceil().max(1.0) as i32;
-            let (cx, cy) = (sw * 0.5, screen_height() * 0.5 - sc(130.0));
-            draw_circle(cx, cy, sc(46.0), t.hud_bg);
-            ui.text_center(&n.to_string(), cx, cy - sc(26.0), 44.0, t.text, true);
-            let hint = if g.scn.weapon.mode == FireMode::Auto { "Hold left mouse to fire" } else { "Click to fire" };
-            ui.text_center(hint, cx, screen_height() * 0.5 + sc(70.0), size::SMALL, with_alpha(t.text, 0.8), false);
+            ui.shadow_text(&n.to_string(), sw * 0.5, sh * 0.5 - sc(170.0), 64.0, white, true);
+            let hint = if g.scn.weapon.mode == FireMode::Auto { "Hold to fire" } else { "Click to fire" };
+            ui.shadow_text(hint, sw * 0.5, sh * 0.5 + sc(70.0), size::SMALL, soft, false);
         }
-
-        let foot = format!(
-            "{}R restart  ·  Esc pause",
-            if self.settings.show_fps { format!("{:.0} fps  ·  ", self.fps_smooth) } else { String::new() }
-        );
-        ui.text(&foot, sc(20.0), screen_height() - sc(32.0), size::CAPTION, with_alpha(t.text, 0.45));
+        if self.settings.show_fps {
+            ui.text(&format!("{:.0} fps", self.fps_smooth), sc(16.0), sh - sc(30.0), size::CAPTION, Color::new(1.0, 1.0, 1.0, 0.4));
+        }
     }
 
     fn draw_pause(&mut self) {
@@ -212,7 +199,7 @@ impl App {
         draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
         let w = sc(420.0);
         let card = Rect::new(sw * 0.5 - w * 0.5, sh * 0.5 - sc(215.0), w, sc(430.0));
-        rrect(card, sc(14.0), t.surface);
+        rrect(card, sc(4.0), t.surface);
         let x = card.x + sc(32.0);
         let iw = w - sc(64.0);
         let mut y = card.y + sc(30.0);

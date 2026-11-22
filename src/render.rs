@@ -1,16 +1,17 @@
-//! 3D scene + crosshair drawing.
+//! 3D scene: sky, arena and targets.
 
 use crate::game::{Game, Target};
+use crate::map::{BallStyle, MapCfg, MapRenderer};
 use crate::scenario::{TargetCfg, TargetShape};
 use crate::settings::Settings;
-use crate::theme;
 use macroquad::models::{Mesh, Vertex};
 use macroquad::prelude::*;
 
 pub struct Renderer {
     sphere: Vec<(Vec3, Vec3)>, // unit positions + normals
     sphere_idx: Vec<u16>,
-    capsule_split: Vec<f32>, // +1 / -1 per vertex: which hemisphere
+    capsule_split: Vec<f32>,   // +1 / -1 per vertex: which hemisphere
+    pub map: MapRenderer,
 }
 
 const RINGS: usize = 17; // odd so no vertex ring sits on the equator
@@ -22,7 +23,7 @@ impl Renderer {
         let mut split = vec![];
         for i in 0..=RINGS {
             let v = i as f32 / RINGS as f32;
-            let phi = v * std::f32::consts::PI; // 0 = top
+            let phi = v * std::f32::consts::PI;
             for j in 0..=SEGS {
                 let u = j as f32 / SEGS as f32;
                 let th = u * std::f32::consts::TAU;
@@ -40,25 +41,39 @@ impl Renderer {
                 idx.extend_from_slice(&[a, b, a + 1, a + 1, b, b + 1]);
             }
         }
-        Renderer {
-            sphere,
-            sphere_idx: idx,
-            capsule_split: split,
-        }
+        Renderer { sphere, sphere_idx: idx, capsule_split: split, map: MapRenderer::new() }
     }
 
-    fn shade(&self, n: Vec3, base: Color, view: Vec3, flash: f32) -> Color {
+    fn shade(&self, n: Vec3, base: Color, view: Vec3, flash: f32, style: BallStyle) -> Color {
         let l = vec3(0.35, 0.8, -0.45).normalize();
-        let diff = n.dot(l).max(0.0);
-        let rim = (1.0 - n.dot(-view).max(0.0)).powf(3.0) * 0.25;
-        let k = 0.38 + 0.62 * diff;
-        let spec = n.dot((l - view).normalize()).max(0.0).powf(24.0) * 0.35;
-        let mut c = Color::new(
-            base.r * k + spec + rim,
-            base.g * k + spec + rim,
-            base.b * k + spec + rim,
-            1.0,
-        );
+        let ndl = n.dot(l).max(0.0);
+        let facing = n.dot(-view).max(0.0);
+        let rim = (1.0 - facing).powf(3.0);
+        let half = (l - view).normalize();
+        let (r, g, b) = match style {
+            BallStyle::Flat => (base.r, base.g, base.b),
+            BallStyle::Matte => {
+                let k = 0.4 + 0.6 * ndl;
+                let spec = n.dot(half).max(0.0).powf(20.0) * 0.25;
+                (base.r * k + spec + rim * 0.2, base.g * k + spec + rim * 0.2, base.b * k + spec + rim * 0.2)
+            }
+            BallStyle::Glossy => {
+                let k = 0.32 + 0.68 * ndl;
+                let spec = n.dot(half).max(0.0).powf(70.0) * 0.9 + n.dot(half).max(0.0).powf(8.0) * 0.12;
+                let env = rim * 0.35;
+                (base.r * k + spec + env, base.g * k + spec + env, base.b * k + spec + env)
+            }
+            BallStyle::Glow => {
+                let core = 0.85 + 0.25 * facing;
+                let halo = rim * 0.9;
+                (
+                    base.r * core + halo * (0.6 + base.r * 0.4),
+                    base.g * core + halo * (0.6 + base.g * 0.4),
+                    base.b * core + halo * (0.6 + base.b * 0.4),
+                )
+            }
+        };
+        let mut c = Color::new(r.min(1.0), g.min(1.0), b.min(1.0), 1.0);
         if flash > 0.0 {
             c.r += (1.0 - c.r) * flash * 0.7;
             c.g += (1.0 - c.g) * flash * 0.7;
@@ -68,7 +83,8 @@ impl Renderer {
     }
 
     /// Sphere (half_len = 0) or vertical capsule centred at `c`.
-    fn draw_blob(&self, c: Vec3, r: f32, half_len: f32, color: Color, eye: Vec3, flash: f32) {
+    #[allow(clippy::too_many_arguments)]
+    fn draw_blob(&self, c: Vec3, r: f32, half_len: f32, color: Color, eye: Vec3, flash: f32, style: BallStyle) {
         let view = (c - eye).normalize_or_zero();
         let verts: Vec<Vertex> = self
             .sphere
@@ -76,60 +92,82 @@ impl Renderer {
             .zip(&self.capsule_split)
             .map(|((p, n), s)| {
                 let pos = c + *p * r + vec3(0.0, half_len * s, 0.0);
-                let col = self.shade(*n, color, view, flash);
+                let col = self.shade(*n, color, view, flash, style);
                 Vertex::new(pos.x, pos.y, pos.z, 0.0, 0.0, col)
             })
             .collect();
-        draw_mesh(&Mesh {
-            vertices: verts,
-            indices: self.sphere_idx.clone(),
-            texture: None,
-        });
+        draw_mesh(&Mesh { vertices: verts, indices: self.sphere_idx.clone(), texture: None });
     }
 
-    pub fn draw_target(&self, t: &Target, cfg: &TargetCfg, base: Color, eye: Vec3) {
+    pub fn draw_target(&self, t: &Target, cfg: &TargetCfg, base: Color, eye: Vec3, style: BallStyle) {
         match cfg.shape {
-            TargetShape::Sphere => self.draw_blob(t.pos, t.radius, 0.0, base, eye, t.flash),
+            TargetShape::Sphere => self.draw_blob(t.pos, t.radius, 0.0, base, eye, t.flash, style),
             TargetShape::Bot => {
                 let g = t.bot_geom(cfg);
                 let mid = (g.body_a + g.body_b) * 0.5;
                 let half = (g.body_b.y - g.body_a.y) * 0.5;
-                let body_col = if cfg.head_only {
-                    darken(base, 0.45)
-                } else {
-                    base
-                };
-                self.draw_blob(mid, t.radius, half, body_col, eye, t.flash);
+                let body_col = if cfg.head_only { darken(base, 0.45) } else { base };
+                self.draw_blob(mid, t.radius, half, body_col, eye, t.flash, style);
                 if let Some(h) = g.head {
-                    self.draw_blob(
-                        h,
-                        t.head_radius(cfg),
-                        0.0,
-                        lighten(base, 0.12),
-                        eye,
-                        t.flash,
-                    );
+                    self.draw_blob(h, t.head_radius(cfg), 0.0, lighten(base, 0.12), eye, t.flash, style);
                 }
             }
         }
     }
 
-    pub fn draw_world(&self, game: &Game, settings: &Settings) {
+    /// Full scene for a running game: sky (2D pass), then arena and targets (3D).
+    pub fn draw_scene(&self, game: &Game, settings: &Settings) -> Camera3D {
+        let map = &settings.map;
+        set_default_camera();
+        self.map.draw_sky(map, game.dir(), settings.hfov, Rect::new(0.0, 0.0, screen_width(), screen_height()));
+        let cam = camera_for(game, settings);
+        set_camera(&cam);
         let a = &game.scn.arena;
-        let (mn, mx) = (Vec3::from(a.min), Vec3::from(a.max));
-        draw_room(mn, mx, a.grid);
+        self.map.draw_arena(map, Vec3::from(a.min), Vec3::from(a.max), game.eye());
         let base = target_color(game, settings);
         let eye = game.eye();
         for t in &game.targets {
-            self.draw_target(t, &game.scn.targets, base, eye);
+            self.draw_target(t, &game.scn.targets, base, eye, map.ball_style);
         }
+        set_default_camera();
+        cam
+    }
+
+    /// Live preview of a map (settings page) with a slowly panning camera.
+    pub fn draw_map_preview(&self, map: &MapCfg, area: Rect) {
+        let t = get_time() as f32 * 0.15;
+        let yaw = t.sin() * 0.45;
+        let fwd = vec3(-yaw.sin(), 0.04, yaw.cos()).normalize();
+        let hfov = 100.0f32;
+        self.map.draw_sky(map, fwd, hfov, area);
+        let eye = vec3(0.0, 1.6, 0.0);
+        let sh = screen_height();
+        let vfov = 2.0 * ((hfov.to_radians() * 0.5).tan() * area.h / area.w).atan();
+        let cam = Camera3D {
+            position: eye,
+            target: eye + fwd,
+            up: Vec3::Y,
+            fovy: vfov,
+            aspect: Some(area.w / area.h),
+            viewport: Some((area.x as i32, (sh - area.y - area.h) as i32, area.w as i32, area.h as i32)),
+            ..Default::default()
+        };
+        set_camera(&cam);
+        self.map.draw_arena(map, vec3(-14.0, 0.0, -3.0), vec3(14.0, 12.0, 19.5), eye);
+        let base = Color::from_rgba(map.ball[0], map.ball[1], map.ball[2], 255);
+        let cfg = TargetCfg::default();
+        for (i, p) in [vec3(-3.2, 2.4, 13.0), vec3(1.2, 4.0, 15.0), vec3(4.6, 2.0, 12.0)].iter().enumerate() {
+            let tg = Target::preview(i as u64, *p, 0.55);
+            self.draw_target(&tg, &cfg, base, eye, map.ball_style);
+        }
+        set_default_camera();
     }
 }
 
 pub fn target_color(game: &Game, settings: &Settings) -> Color {
     match (game.scn.targets.color, settings.target_color) {
         (Some(c), _) | (None, Some(c)) => rgb(c),
-        _ => theme::t().target,
+        _ => rgb(settings.map.ball),
     }
 }
 
@@ -142,90 +180,13 @@ pub fn darken(c: Color, k: f32) -> Color {
 }
 
 pub fn lighten(c: Color, k: f32) -> Color {
-    Color::new(
-        c.r + (1.0 - c.r) * k,
-        c.g + (1.0 - c.g) * k,
-        c.b + (1.0 - c.b) * k,
-        c.a,
-    )
-}
-
-fn quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, col_a: Color, col_b: Color) {
-    let v = vec![
-        Vertex::new(a.x, a.y, a.z, 0.0, 0.0, col_a),
-        Vertex::new(b.x, b.y, b.z, 1.0, 0.0, col_a),
-        Vertex::new(c.x, c.y, c.z, 1.0, 1.0, col_b),
-        Vertex::new(d.x, d.y, d.z, 0.0, 1.0, col_b),
-    ];
-    draw_mesh(&Mesh {
-        vertices: v,
-        indices: vec![0, 1, 2, 0, 2, 3],
-        texture: None,
-    });
-}
-
-/// Grid room in the active theme's colours.
-fn draw_room(mn: Vec3, mx: Vec3, grid: f32) {
-    let th = theme::t();
-    let (wall_lo, wall_hi, floor, floor_far, ceil) = (th.wall, th.wall_top, th.floor, th.floor_far, th.ceiling);
-    let (x0, y0, z0, x1, y1, z1) = (mn.x, mn.y, mn.z, mx.x, mx.y, mx.z);
-    quad(vec3(x0, y0, z0), vec3(x1, y0, z0), vec3(x1, y0, z1), vec3(x0, y0, z1), floor, floor_far);
-    quad(vec3(x0, y1, z0), vec3(x1, y1, z0), vec3(x1, y1, z1), vec3(x0, y1, z1), ceil, ceil);
-    quad(vec3(x0, y0, z1), vec3(x1, y0, z1), vec3(x1, y1, z1), vec3(x0, y1, z1), wall_lo, wall_hi);
-    quad(vec3(x0, y0, z0), vec3(x1, y0, z0), vec3(x1, y1, z0), vec3(x0, y1, z0), wall_lo, wall_hi);
-    quad(vec3(x0, y0, z0), vec3(x0, y0, z1), vec3(x0, y1, z1), vec3(x0, y1, z0), wall_lo, wall_hi);
-    quad(vec3(x1, y0, z0), vec3(x1, y0, z1), vec3(x1, y1, z1), vec3(x1, y1, z0), wall_lo, wall_hi);
-    if grid <= 0.0 {
-        return;
-    }
-    let line = th.grid;
-    let floor_line = th.floor_grid;
-    let e = 0.01;
-    let step = grid.max(0.25);
-    // floor lines
-    let mut x = (x0 / step).ceil() * step;
-    while x <= x1 {
-        draw_line_3d(vec3(x, y0 + e, z0), vec3(x, y0 + e, z1), floor_line);
-        x += step;
-    }
-    let mut z = (z0 / step).ceil() * step;
-    while z <= z1 {
-        draw_line_3d(vec3(x0, y0 + e, z), vec3(x1, y0 + e, z), floor_line);
-        z += step;
-    }
-    // wall lines: verticals on far/near walls and side walls, horizontals all round
-    let mut x = (x0 / step).ceil() * step;
-    while x <= x1 {
-        draw_line_3d(vec3(x, y0, z1 - e), vec3(x, y1, z1 - e), line);
-        draw_line_3d(vec3(x, y0, z0 + e), vec3(x, y1, z0 + e), line);
-        x += step;
-    }
-    let mut z = (z0 / step).ceil() * step;
-    while z <= z1 {
-        draw_line_3d(vec3(x0 + e, y0, z), vec3(x0 + e, y1, z), line);
-        draw_line_3d(vec3(x1 - e, y0, z), vec3(x1 - e, y1, z), line);
-        z += step;
-    }
-    let mut y = (y0 / step).ceil() * step;
-    while y <= y1 {
-        draw_line_3d(vec3(x0, y, z1 - e), vec3(x1, y, z1 - e), line);
-        draw_line_3d(vec3(x0, y, z0 + e), vec3(x1, y, z0 + e), line);
-        draw_line_3d(vec3(x0 + e, y, z0), vec3(x0 + e, y, z1), line);
-        draw_line_3d(vec3(x1 - e, y, z0), vec3(x1 - e, y, z1), line);
-        y += step;
-    }
+    Color::new(c.r + (1.0 - c.r) * k, c.g + (1.0 - c.g) * k, c.b + (1.0 - c.b) * k, c.a)
 }
 
 pub fn camera_for(game: &Game, settings: &Settings) -> Camera3D {
     let eye = game.eye();
     let aspect = screen_width() / screen_height().max(1.0);
-    Camera3D {
-        position: eye,
-        target: eye + game.dir(),
-        up: Vec3::Y,
-        fovy: settings.vfov_radians(aspect),
-        ..Default::default()
-    }
+    Camera3D { position: eye, target: eye + game.dir(), up: Vec3::Y, fovy: settings.vfov_radians(aspect), ..Default::default() }
 }
 
 /// Project a world point to screen pixels (None if behind the camera).
@@ -236,8 +197,5 @@ pub fn world_to_screen(cam: &Camera3D, p: Vec3) -> Option<Vec2> {
         return None;
     }
     let ndc = vec2(c.x / c.w, c.y / c.w);
-    Some(vec2(
-        (ndc.x + 1.0) * 0.5 * screen_width(),
-        (1.0 - ndc.y) * 0.5 * screen_height(),
-    ))
+    Some(vec2((ndc.x + 1.0) * 0.5 * screen_width(), (1.0 - ndc.y) * 0.5 * screen_height()))
 }

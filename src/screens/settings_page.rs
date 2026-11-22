@@ -1,22 +1,14 @@
 //! Settings: sensitivity, crosshair, theme, gameplay, video/audio, files.
 
 use crate::app::{App, SettingsPage};
+use crate::audio::{HIT_SOUNDS, KILL_SOUNDS};
 use crate::crosshair::{Crosshair, VALORANT_COLORS};
+use crate::map::{self, BallStyle, Layout, Pattern, BALL_COLORS, SKIES, SURFACE_COLORS};
 use crate::settings::{trim_num, SensScale, Settings};
 use crate::theme::{self, NamedTheme};
 use crate::ui::{hash_id, rrect, size, Kind};
 use macroquad::prelude::*;
 
-const TARGET_COLORS: [[u8; 3]; 8] = [
-    [234, 52, 52],
-    [255, 70, 85],
-    [255, 140, 0],
-    [255, 230, 0],
-    [60, 220, 90],
-    [0, 210, 255],
-    [180, 90, 255],
-    [245, 245, 245],
-];
 
 
 /// Toggle row bound to a settings field (copies in/out to keep the borrow checker happy).
@@ -74,9 +66,9 @@ impl App {
             let rr = Rect::new(nav.x, y, nav.w, sc(40.0));
             let active = self.settings_page == p;
             if active {
-                rrect(rr, sc(8.0), t.surface_active);
+                rrect(rr, sc(3.0), t.surface_active);
             } else if self.ui.hover(rr) {
-                rrect(rr, sc(8.0), t.surface_hover);
+                rrect(rr, sc(3.0), t.surface_hover);
                 self.ui.hand = true;
             }
             self.ui.text_mid(p.label(), rr.x + sc(14.0), rr, size::BODY, if active { t.text } else { t.text_dim }, active);
@@ -98,6 +90,8 @@ impl App {
         match self.settings_page {
             SettingsPage::Sensitivity => changed |= self.page_sens(&mut f),
             SettingsPage::Crosshair => changed |= self.page_crosshair(&mut f, card),
+            SettingsPage::Map => changed |= self.page_map(&mut f),
+            SettingsPage::Sound => changed |= self.page_sound(&mut f),
             SettingsPage::Theme => changed |= self.page_theme(&mut f),
             SettingsPage::Gameplay => changed |= self.page_gameplay(&mut f),
             SettingsPage::VideoAudio => changed |= self.page_video(&mut f),
@@ -260,7 +254,7 @@ impl App {
             let tw = (f.w - f.sc(10.0) * (n - 1.0)) / n;
             for (i, (k, v)) in tiles.iter().enumerate() {
                 let tr = Rect::new(f.x + i as f32 * (tw + f.sc(10.0)), f.y, tw, f.sc(72.0));
-                rrect(tr, f.sc(8.0), t.surface_hover);
+                rrect(tr, f.sc(3.0), t.surface_hover);
                 self.ui.text(k, tr.x + f.sc(14.0), tr.y + f.sc(12.0), size::CAPTION, t.text_faint);
                 self.ui.strong(v, tr.x + f.sc(14.0), tr.y + f.sc(34.0), 20.0, t.text);
             }
@@ -275,7 +269,7 @@ impl App {
                 let current = g == self.settings.sens_scale;
                 let rr = Rect::new(f.x - f.sc(12.0), f.y, f.w + f.sc(24.0), h);
                 if current {
-                    rrect(rr, f.sc(7.0), t.surface_hover);
+                    rrect(rr, f.sc(3.0), t.surface_hover);
                 }
                 self.ui.text_mid(g.label(), f.x, rr, size::BODY, if current { t.text } else { t.text_dim }, current);
                 let v = self.settings.sens_in(g);
@@ -346,7 +340,7 @@ impl App {
                     draw_line(gx, pr.y, gx, pr.y + pr.h, 1.0, theme::with_alpha(t.grid, 0.35));
                     gx += step;
                 }
-                let tc = self.settings.target_color.map(crate::render::rgb).unwrap_or(t.target);
+                let tc = crate::render::rgb(self.settings.map.ball);
                 draw_circle(pr.x + pr.w * 0.5 + f.sc(46.0) * zoom.min(1.5), pr.y + pr.h * 0.5 - f.sc(26.0), f.sc(14.0) * zoom.min(1.5), tc);
                 self.settings.crosshair.draw(pr.x + pr.w * 0.5, pr.y + pr.h * 0.5, self.ui.scale * zoom);
                 self.ui.text(label, pr.x + f.sc(12.0), pr.y + f.sc(10.0), size::CAPTION, theme::with_alpha(t.text, 0.75));
@@ -460,12 +454,245 @@ impl App {
         changed
     }
 
+    // ------------------------------------------------------------------ map
+
+    fn page_map(&mut self, f: &mut Form) -> bool {
+        let t = theme::t();
+        let mut changed = false;
+        self.heading(f, "Map & targets", Some("Sky, floor, walls and target look. Start from a preset, then change anything."));
+
+        // Live preview.
+        let ph = f.sc(250.0);
+        if f.vis(ph) {
+            let pr = Rect::new(f.x, f.y, f.w, ph);
+            self.renderer.draw_map_preview(&self.settings.map, pr);
+            let name = if self.settings.map.preset.is_empty() { "Custom".to_string() } else { self.settings.map.preset.clone() };
+            self.ui.shadow_text(&name, pr.x + pr.w * 0.5, pr.y + pr.h - f.sc(30.0), size::SMALL, WHITE, true);
+        }
+        f.y += ph + f.sc(14.0);
+
+        // Presets.
+        self.heading(f, "Presets", None);
+        let presets = map::presets();
+        let cols = 4usize;
+        let gap = f.sc(8.0);
+        let cw = (f.w - gap * (cols as f32 - 1.0)) / cols as f32;
+        let ch = f.sc(46.0);
+        for (i, (name, cfg)) in presets.iter().enumerate() {
+            let r = Rect::new(f.x + (i % cols) as f32 * (cw + gap), f.y + (i / cols) as f32 * (ch + gap), cw, ch);
+            if r.y < f.top - 0.5 || r.y + r.h > f.bottom + 0.5 {
+                continue;
+            }
+            let active = self.settings.map.preset == *name;
+            let sk = map::sky(&cfg.sky);
+            // swatch: sky gradient + ball
+            let sw = Rect::new(r.x + f.sc(6.0), r.y + f.sc(6.0), f.sc(34.0), r.h - f.sc(12.0));
+            if self.ui.chip(r, "", active) {
+                self.settings.map = cfg.clone();
+                changed = true;
+            }
+            draw_rectangle(sw.x, sw.y, sw.w, sw.h * 0.5, sk.top());
+            draw_rectangle(sw.x, sw.y + sw.h * 0.5, sw.w, sw.h * 0.5, crate::render::rgb(cfg.floor.a));
+            draw_rectangle(sw.x, sw.y + sw.h * 0.45, sw.w, sw.h * 0.1, sk.horizon());
+            draw_circle(sw.x + sw.w * 0.5, sw.y + sw.h * 0.5, f.sc(5.0), crate::render::rgb(cfg.ball));
+            let label = self.ui.fit(name, size::SMALL, r.w - f.sc(56.0), active);
+            self.ui.text_mid(&label, sw.x + sw.w + f.sc(10.0), r, size::SMALL, if active { t.text } else { t.text_dim }, active);
+        }
+        f.y += presets.len().div_ceil(cols) as f32 * (ch + gap) + f.sc(6.0);
+
+        // Sky.
+        self.heading(f, "Sky", None);
+        let cols = 4usize;
+        let ch = f.sc(40.0);
+        for (i, sk) in SKIES.iter().enumerate() {
+            let r = Rect::new(f.x + (i % cols) as f32 * (cw + gap), f.y + (i / cols) as f32 * (ch + gap), cw, ch);
+            if r.y < f.top - 0.5 || r.y + r.h > f.bottom + 0.5 {
+                continue;
+            }
+            let active = self.settings.map.sky == sk.name;
+            if self.ui.chip(r, "", active) {
+                self.settings.map.sky = sk.name.to_string();
+                self.settings.map.preset.clear();
+                changed = true;
+            }
+            let sw = Rect::new(r.x + f.sc(6.0), r.y + f.sc(6.0), f.sc(30.0), r.h - f.sc(12.0));
+            let steps = 6;
+            for k in 0..steps {
+                let a = k as f32 / steps as f32;
+                let c = theme::mix(sk.top(), sk.horizon(), a);
+                draw_rectangle(sw.x, sw.y + sw.h * a, sw.w, sw.h / steps as f32 + 0.5, c);
+            }
+            self.ui.text_mid(sk.name, sw.x + sw.w + f.sc(10.0), r, size::SMALL, if active { t.text } else { t.text_dim }, active);
+        }
+        f.y += SKIES.len().div_ceil(cols) as f32 * (ch + gap) + f.sc(6.0);
+
+        // Layout + fog.
+        let h = self.label(f, "Arena", Some("Room has a ceiling; open layouts show the sky"));
+        if f.vis(h) {
+            let opts: Vec<&str> = Layout::ALL.iter().map(|l| l.label()).collect();
+            let idx = Layout::ALL.iter().position(|l| *l == self.settings.map.layout).unwrap_or(0);
+            if let Some(i) = self.ui.segmented(f.ctrl(360.0, 38.0, h), &opts, idx) {
+                self.settings.map.layout = Layout::ALL[i];
+                self.settings.map.preset.clear();
+                changed = true;
+            }
+        }
+        self.end_row(f, h);
+        let pct = |v: f32| format!("{:.0}%", v * 100.0);
+        if sl!(self, f, "Fog", "fog", [map.fog], 0.0, 1.0, 0.05, &pct) {
+            self.settings.map.preset.clear();
+            changed = true;
+        }
+
+        // Surfaces.
+        for (title, which) in [("Floor", 0u8), ("Walls", 1u8)] {
+            let sub = if which == 1 && self.settings.map.layout == Layout::OpenField { Some("Not shown in the Open field layout") } else { None };
+            self.heading(f, title, sub);
+            let mut surf = if which == 0 { self.settings.map.floor.clone() } else { self.settings.map.wall.clone() };
+            let before = surf.clone();
+            // pattern chips
+            let pw = f.sc(98.0);
+            let per_row = ((f.w + gap) / (pw + gap)).floor().max(1.0) as usize;
+            for (i, p) in Pattern::ALL.iter().enumerate() {
+                let r = Rect::new(f.x + (i % per_row) as f32 * (pw + gap), f.y + (i / per_row) as f32 * f.sc(40.0), pw, f.sc(32.0));
+                if r.y < f.top - 0.5 || r.y + r.h > f.bottom + 0.5 {
+                    continue;
+                }
+                if self.ui.chip(r, p.label(), surf.pattern == *p) {
+                    surf.pattern = *p;
+                }
+            }
+            f.y += Pattern::ALL.len().div_ceil(per_row) as f32 * f.sc(40.0) + f.sc(6.0);
+            for (label, slot) in [("Base colour", 0u8), ("Pattern colour", 1u8)] {
+                let h = f.sc(44.0);
+                if f.vis(h) {
+                    self.ui.text_mid(label, f.x, Rect::new(f.x, f.y, 1.0, h), size::SMALL, t.text_dim, false);
+                    let v = if slot == 0 { &mut surf.a } else { &mut surf.b };
+                    self.ui.swatches(f.x + f.sc(130.0), f.y + f.sc(10.0), v, &SURFACE_COLORS);
+                }
+                f.y += h;
+            }
+            let h = self.label(f, "Pattern size", None);
+            if f.vis(h) {
+                let c = f.ctrl(360.0, 28.0, h);
+                let id = if which == 0 { "fscale" } else { "wscale" };
+                self.ui.slider(hash_id(id), Rect::new(c.x, c.y, c.w - f.sc(64.0), c.h), &mut surf.scale, 0.25, 4.0, 0.25);
+                self.ui.text_right(&format!("{} m", trim_num(surf.scale as f64)), c.x + c.w, c.y + f.sc(5.0), size::SMALL, t.text_dim, false);
+            }
+            self.end_row(f, h);
+            if surf != before {
+                if which == 0 {
+                    self.settings.map.floor = surf;
+                } else {
+                    self.settings.map.wall = surf;
+                }
+                self.settings.map.preset.clear();
+                changed = true;
+            }
+        }
+
+        // Targets.
+        self.heading(f, "Targets", Some("Scenarios that set their own target colour keep it."));
+        let h = f.sc(48.0);
+        if f.vis(h) {
+            let mut c = self.settings.map.ball;
+            if self.ui.swatches(f.x, f.y + f.sc(12.0), &mut c, &BALL_COLORS) {
+                self.settings.map.ball = c;
+                changed = true;
+            }
+            let id = hash_id("ballhex");
+            let r = Rect::new(f.x + f.w - f.sc(130.0), f.y + f.sc(4.0), f.sc(130.0), f.sc(40.0));
+            let mut hexs = format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
+            if self.ui.focus == Some(id) {
+                hexs = std::mem::take(&mut self.ui.buf);
+            }
+            let done = self.ui.text_field(id, r, &mut hexs, "#RRGGBB");
+            if self.ui.focus == Some(id) {
+                self.ui.buf = hexs;
+            } else if done {
+                if let Some(col) = theme::hex(&hexs) {
+                    self.settings.map.ball = [(col.r * 255.0) as u8, (col.g * 255.0) as u8, (col.b * 255.0) as u8];
+                    changed = true;
+                }
+                self.ui.buf.clear();
+            }
+        }
+        f.y += h;
+        let h = self.label(f, "Shading", None);
+        if f.vis(h) {
+            let opts: Vec<&str> = BallStyle::ALL.iter().map(|b| b.label()).collect();
+            let idx = BallStyle::ALL.iter().position(|b| *b == self.settings.map.ball_style).unwrap_or(0);
+            if let Some(i) = self.ui.segmented(f.ctrl(360.0, 38.0, h), &opts, idx) {
+                self.settings.map.ball_style = BallStyle::ALL[i];
+                changed = true;
+            }
+        }
+        self.end_row(f, h);
+        if let Some(e) = &self.renderer.map.error {
+            f.y += f.sc(12.0);
+            if f.vis(f.sc(22.0)) {
+                self.ui.text(&self.ui.fit(e, size::SMALL, f.w, false), f.x, f.y, size::SMALL, t.bad);
+            }
+            f.y += f.sc(22.0);
+        }
+        changed
+    }
+
+    // ---------------------------------------------------------------- sound
+
+    fn page_sound(&mut self, f: &mut Form) -> bool {
+        let t = theme::t();
+        let mut changed = false;
+        self.heading(f, "Sound", None);
+        let pct = |v: f32| format!("{:.0}%", v * 100.0);
+        changed |= sl!(self, f, "Volume", "vol", [volume], 0.0, 1.0, 0.05, &pct);
+        let vol = self.settings.volume;
+        for (title, list, is_hit) in [("Hit sound", HIT_SOUNDS, true), ("Kill sound", KILL_SOUNDS, false)] {
+            self.heading(f, title, Some("Click one to hear it."));
+            let mut names: Vec<String> = list.iter().map(|s| s.to_string()).collect();
+            names.extend(self.sounds.custom.iter().cloned());
+            let gap = f.sc(8.0);
+            let cw = f.sc(118.0);
+            let per_row = ((f.w + gap) / (cw + gap)).floor().max(1.0) as usize;
+            for (i, n) in names.iter().enumerate() {
+                let r = Rect::new(f.x + (i % per_row) as f32 * (cw + gap), f.y + (i / per_row) as f32 * f.sc(42.0), cw, f.sc(34.0));
+                if r.y < f.top - 0.5 || r.y + r.h > f.bottom + 0.5 {
+                    continue;
+                }
+                let current = if is_hit { &self.settings.hit_sound_name } else { &self.settings.kill_sound_name };
+                let label = n.trim_start_matches("File: ").to_string();
+                if self.ui.chip(r, &label, current == n) {
+                    if is_hit {
+                        self.settings.hit_sound_name = n.clone();
+                    } else {
+                        self.settings.kill_sound_name = n.clone();
+                    }
+                    self.sounds.play(n, vol);
+                    changed = true;
+                }
+            }
+            f.y += names.len().div_ceil(per_row) as f32 * f.sc(42.0) + f.sc(6.0);
+        }
+        self.heading(f, "Other sounds", None);
+        changed |= sw!(self, f, "Play hit sounds", None, hit_sound);
+        changed |= sw!(self, f, "Play kill sounds", None, kill_sound);
+        changed |= sw!(self, f, "Countdown, finish and high-score sounds", None, game_sounds);
+        changed |= sw!(self, f, "Menu click sounds", None, ui_sounds);
+        let h = self.label(f, "Your own sounds", Some("Drop .wav or .ogg files into the sounds folder, then restart"));
+        if f.vis(h) && self.ui.button(f.ctrl(150.0, 36.0, h), "Open folder", Kind::Ghost) {
+            crate::open_path(&self.paths.sounds);
+        }
+        self.end_row(f, h);
+        let _ = t;
+        changed
+    }
+
     // --------------------------------------------------------------- theme
 
     fn page_theme(&mut self, f: &mut Form) -> bool {
         let t = theme::t();
         let mut changed = false;
-        self.heading(f, "Theme", Some("Colours for the menus, HUD and the 3D room. Themes are .toml files in the themes folder, so you can share them or make your own."));
+        self.heading(f, "Theme", Some("Colours for the menus. (The 3D world is set in Map & targets.) Themes are .toml files in the themes folder, so you can share them or make your own."));
         let cols = 3usize;
         let gap = f.sc(14.0);
         let cw = (f.w - gap * (cols as f32 - 1.0)) / cols as f32;
@@ -527,20 +754,6 @@ impl App {
         }
         f.y += h + f.sc(12.0);
 
-        self.heading(f, "Target colour", Some("Override the theme's target colour."));
-        let mut use_theme = self.settings.target_color.is_none();
-        if self.switch_row(f, "Use theme colour", None, &mut use_theme) {
-            self.settings.target_color = if use_theme { None } else { Some(TARGET_COLORS[0]) };
-            changed = true;
-        }
-        if let Some(mut c) = self.settings.target_color {
-            let h = f.sc(52.0);
-            if f.vis(h) && self.ui.swatches(f.x, f.y + f.sc(14.0), &mut c, &TARGET_COLORS) {
-                self.settings.target_color = Some(c);
-                changed = true;
-            }
-            f.y += h;
-        }
         changed
     }
 
@@ -620,11 +833,6 @@ impl App {
         }
         changed |= sw!(self, f, "V-Sync", Some("Off gives the lowest input lag. Applies after restart"), vsync);
         changed |= sw!(self, f, "Anti-aliasing (MSAA 4×)", Some("Applies after restart"), msaa);
-        self.heading(f, "Audio", None);
-        let pct = |v: f32| format!("{:.0}%", v * 100.0);
-        changed |= sl!(self, f, "Volume", "vol", [volume], 0.0, 1.0, 0.05, &pct);
-        changed |= sw!(self, f, "Hit sound", None, hit_sound);
-        changed |= sw!(self, f, "Kill sound", None, kill_sound);
         f.y += f.sc(24.0);
         if f.vis(f.sc(40.0)) && self.ui.button(Rect::new(f.x, f.y, f.sc(220.0), f.sc(40.0)), "Reset all settings", Kind::Secondary) {
             let fs = self.settings.fullscreen;

@@ -1,4 +1,5 @@
 use crate::crosshair::Crosshair;
+use crate::map::MapCfg;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -101,6 +102,14 @@ pub struct Settings {
     pub hitmarker: bool,
     /// Download and install new versions from GitHub on launch.
     pub auto_update: bool,
+    /// Sky, floor, walls, fog and target look.
+    pub map: MapCfg,
+    pub hit_sound_name: String,
+    pub kill_sound_name: String,
+    /// Countdown beeps, run finished, new high score.
+    pub game_sounds: bool,
+    /// Soft clicks on menu buttons.
+    pub ui_sounds: bool,
 }
 
 impl Default for Settings {
@@ -128,6 +137,11 @@ impl Default for Settings {
             show_target_health: true,
             hitmarker: true,
             auto_update: true,
+            map: MapCfg::default(),
+            hit_sound_name: "Tick".into(),
+            kill_sound_name: "Ding".into(),
+            game_sounds: true,
+            ui_sounds: true,
         }
     }
 }

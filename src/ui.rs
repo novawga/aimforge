@@ -35,6 +35,8 @@ pub struct Ui {
     pub drag: Option<u64>,
     pub consumed: bool,
     pub hand: bool,
+    /// Widget clicks this frame (for UI sounds).
+    pub clicks: u32,
 }
 
 fn try_font(paths: &[&str]) -> Option<Font> {
@@ -91,6 +93,7 @@ impl Ui {
             drag: None,
             consumed: false,
             hand: false,
+            clicks: 0,
         }
     }
 
@@ -106,6 +109,7 @@ impl Ui {
         }
         self.consumed = false;
         self.hand = false;
+        self.clicks = 0;
         if !self.down {
             self.drag = None;
         }
@@ -122,6 +126,7 @@ impl Ui {
     pub fn click_in(&mut self, r: Rect) -> bool {
         if self.clicked && !self.consumed && r.contains(self.mouse) {
             self.consumed = true;
+            self.clicks += 1;
             true
         } else {
             false
@@ -214,7 +219,7 @@ impl Ui {
 
     pub fn card(&self, r: Rect) {
         let t = theme::t();
-        rrect(r, self.s(10.0), t.surface);
+        rrect(r, self.s(4.0), t.surface);
     }
 
     pub fn divider(&self, x: f32, y: f32, w: f32) {
@@ -229,7 +234,7 @@ impl Ui {
         if h {
             self.hand = true;
         }
-        let rad = self.s(7.0);
+        let rad = self.s(3.0);
         let (bg, fg) = match kind {
             Kind::Primary => (if h { mix(t.accent, t.text, 0.12) } else { t.accent }, t.accent_text),
             Kind::Secondary => (if h { t.surface_active } else { t.surface_hover }, t.text),
@@ -271,7 +276,7 @@ impl Ui {
     /// Pill segmented control. Returns the clicked index.
     pub fn segmented(&mut self, r: Rect, options: &[&str], idx: usize) -> Option<usize> {
         let t = theme::t();
-        rrect(r, self.s(8.0), t.surface_hover);
+        rrect(r, self.s(4.0), t.surface_hover);
         let pad = self.s(3.0);
         let n = options.len().max(1);
         let total_text: f32 = options.iter().map(|o| self.measure(o, size::SMALL, true)).sum();
@@ -283,7 +288,7 @@ impl Ui {
             let seg = Rect::new(x, r.y + pad, w, r.h - 2.0 * pad);
             let active = i == idx;
             if active {
-                rrect(seg, self.s(6.0), t.surface_active);
+                rrect(seg, self.s(3.0), t.surface_active);
             } else if self.hover(seg) {
                 self.hand = true;
             }
@@ -296,6 +301,33 @@ impl Ui {
             x += w;
         }
         out
+    }
+
+    /// Small selectable pill. Returns true when clicked.
+    pub fn chip(&mut self, r: Rect, label: &str, active: bool) -> bool {
+        let t = theme::t();
+        let h = self.hover(r);
+        if h {
+            self.hand = true;
+        }
+        let bg = if active { with_alpha(t.accent, 0.18) } else if h { t.surface_active } else { t.surface_hover };
+        rrect(r, self.s(3.0), bg);
+        if active {
+            let b = self.s(1.5).max(1.0);
+            draw_rectangle_lines(r.x, r.y, r.w, r.h, b * 2.0, t.accent);
+        }
+        let label = self.fit(label, size::SMALL, r.w - self.s(12.0), active);
+        let w = self.measure(&label, size::SMALL, active);
+        self.text_mid(&label, r.x + (r.w - w) * 0.5, r, size::SMALL, if active { t.text } else { t.text_dim }, active);
+        self.click_in(r)
+    }
+
+    /// Text with a soft drop shadow (HUD over the 3D view).
+    pub fn shadow_text(&self, t: &str, cx: f32, y: f32, size: f32, color: Color, bold: bool) {
+        let w = self.measure(t, size, bold);
+        let o = self.s(1.5).max(1.0);
+        self.text_ex(t, cx - w * 0.5 + o, y + o, size, Color::new(0.0, 0.0, 0.0, 0.55 * color.a), bold);
+        self.text_ex(t, cx - w * 0.5, y, size, color, bold);
     }
 
     /// iOS-style switch on the right edge of `r`. Returns true if toggled.
@@ -355,7 +387,7 @@ impl Ui {
     pub fn text_field(&mut self, id: u64, r: Rect, value: &mut String, placeholder: &str) -> bool {
         let t = theme::t();
         let focused = self.focus == Some(id);
-        let rad = self.s(7.0);
+        let rad = self.s(3.0);
         if focused {
             let g = self.s(2.0);
             rrect(Rect::new(r.x - g, r.y - g, r.w + 2.0 * g, r.h + 2.0 * g), rad + g, with_alpha(t.accent, 0.6));
