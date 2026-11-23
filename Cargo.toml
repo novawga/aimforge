@@ -29,7 +29,8 @@ flate2 = "1.1.11"
 [profile.release]
 opt-level = 3
 lto = "thin"
-codegen-units = 1
+# 16, not 1: with a single unit LLVM runs out of memory on the Windows CI runner.
+codegen-units = 16
 
 [profile.dev]
 opt-level = 1
