@@ -205,7 +205,7 @@ impl App {
         draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.55));
         let w = sc(420.0);
         let card = Rect::new(sw * 0.5 - w * 0.5, sh * 0.5 - sc(215.0), w, sc(430.0));
-        rrect(card, sc(4.0), t.surface);
+        crate::ui::panel(card, sc(18.0), t.surface, theme::with_alpha(t.text, 0.06), sc(24.0));
         let x = card.x + sc(32.0);
         let iw = w - sc(64.0);
         let mut y = card.y + sc(30.0);

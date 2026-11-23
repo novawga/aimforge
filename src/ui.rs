@@ -39,6 +39,18 @@ pub struct Ui {
     pub hand: bool,
     /// Widget clicks this frame (for UI sounds).
     pub clicks: u32,
+    /// Eased per-widget values (hover glow, sliding highlights, switch knobs).
+    anims: std::collections::HashMap<u64, f32>,
+    dt: f32,
+}
+
+const INTER_REGULAR: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");
+const INTER_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Inter-SemiBold.ttf");
+
+fn embedded(bytes: &[u8]) -> Option<Font> {
+    let mut f = load_ttf_font_from_bytes(bytes).ok()?;
+    f.set_filter(FilterMode::Linear);
+    Some(f)
 }
 
 fn try_font(paths: &[&str]) -> Option<Font> {
@@ -57,8 +69,8 @@ impl Ui {
     pub fn new(asset_dir: &std::path::Path) -> Ui {
         let custom = asset_dir.join("font.ttf").to_string_lossy().to_string();
         let custom_b = asset_dir.join("font-bold.ttf").to_string_lossy().to_string();
-        let font = try_font(&[
-            &custom,
+        // A font.ttf in assets overrides; otherwise the bundled Inter; system fonts last.
+        let font = try_font(&[&custom]).or_else(|| embedded(INTER_REGULAR)).or_else(|| try_font(&[
             "C:\\Windows\\Fonts\\segoeui.ttf",
             "C:\\Windows\\Fonts\\arial.ttf",
             "/System/Library/Fonts/SFNS.ttf",
@@ -68,9 +80,8 @@ impl Ui {
             "/usr/share/fonts/TTF/DejaVuSans.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             "/usr/share/fonts/noto/NotoSans-Regular.ttf",
-        ]);
-        let bold = try_font(&[
-            &custom_b,
+        ]));
+        let bold = try_font(&[&custom_b]).or_else(|| embedded(INTER_SEMIBOLD)).or_else(|| try_font(&[
             "C:\\Windows\\Fonts\\seguisb.ttf",
             "C:\\Windows\\Fonts\\segoeuib.ttf",
             "C:\\Windows\\Fonts\\arialbd.ttf",
@@ -79,7 +90,7 @@ impl Ui {
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        ])
+        ]))
         .or_else(|| font.clone());
         Ui {
             font,
@@ -97,6 +108,8 @@ impl Ui {
             consumed: false,
             hand: false,
             clicks: 0,
+            anims: Default::default(),
+            dt: 1.0 / 60.0,
         }
     }
 
@@ -114,6 +127,10 @@ impl Ui {
         self.consumed = false;
         self.hand = false;
         self.clicks = 0;
+        self.dt = get_frame_time().clamp(0.0, 0.1);
+        if self.anims.len() > 5000 {
+            self.anims.clear();
+        }
         if !self.down {
             self.drag = None;
         }
@@ -123,6 +140,23 @@ impl Ui {
     /// so screen hotkeys must stay quiet.
     pub fn typing(&self) -> bool {
         self.focus_at_begin || self.focus.is_some()
+    }
+
+    /// Ease a per-widget value toward `target`; `speed` ~ 1/seconds.
+    pub fn anim(&mut self, key: u64, target: f32, speed: f32) -> f32 {
+        let dt = self.dt;
+        let v = self.anims.entry(key).or_insert(target);
+        *v += (target - *v) * (1.0 - (-dt * speed).exp());
+        if (target - *v).abs() < 0.0005 {
+            *v = target;
+        }
+        *v
+    }
+
+    /// Hover amount 0..1 for a rect, eased.
+    pub fn hover_anim(&mut self, r: Rect, salt: &str) -> f32 {
+        let h = self.hover(r);
+        self.anim(rect_key(r, salt), if h { 1.0 } else { 0.0 }, 16.0)
     }
 
     pub fn s(&self, v: f32) -> f32 {
@@ -229,30 +263,70 @@ impl Ui {
 
     pub fn card(&self, r: Rect) {
         let t = theme::t();
-        rrect(r, self.s(4.0), t.surface);
+        panel(r, self.s(16.0), t.surface, with_alpha(t.text, 0.055), self.s(18.0));
+    }
+
+    /// Radius used for rows, inputs and buttons.
+    pub fn radius(&self) -> f32 {
+        self.s(10.0)
     }
 
     pub fn divider(&self, x: f32, y: f32, w: f32) {
-        draw_rectangle(x, y.round(), w, self.s(1.0).max(1.0), theme::t().border);
+        draw_rectangle(x, y.round(), w, 1.0, with_alpha(theme::t().border, 0.7));
+    }
+
+    /// Row highlight used by lists: selected, hovered (eased) or nothing.
+    pub fn row_bg(&mut self, r: Rect, selected: bool) {
+        let t = theme::t();
+        let h = self.hover_anim(r, "row");
+        let rad = self.s(9.0);
+        if selected {
+            rrect(r, rad, t.surface_active);
+            let bar = Rect::new(r.x + self.s(4.0), r.y + r.h * 0.28, self.s(3.0), r.h * 0.44);
+            rrect(bar, bar.w * 0.5, t.accent);
+        } else if h > 0.0 {
+            rrect(r, rad, with_alpha(t.surface_hover, h));
+        }
+        if self.hover(r) {
+            self.hand = true;
+        }
     }
 
     // ------------------------------------------------------------- widgets
 
     pub fn button(&mut self, r: Rect, label: &str, kind: Kind) -> bool {
         let t = theme::t();
-        let h = self.hover(r);
-        if h {
+        let hov = self.hover(r);
+        if hov {
             self.hand = true;
         }
-        let rad = self.s(3.0);
-        let (bg, fg) = match kind {
-            Kind::Primary => (if h { mix(t.accent, t.text, 0.12) } else { t.accent }, t.accent_text),
-            Kind::Secondary => (if h { t.surface_active } else { t.surface_hover }, t.text),
-            Kind::Ghost => (if h { t.surface_hover } else { with_alpha(t.surface_hover, 0.0) }, if h { t.text } else { t.text_dim }),
+        let h = self.hover_anim(r, label);
+        let pressed = hov && self.down;
+        let rad = self.radius().min(r.h * 0.5);
+        let fg = match kind {
+            Kind::Primary => {
+                let base = mix(t.accent, t.text, 0.10 * h);
+                let base = if pressed { mix(base, BLACK, 0.12) } else { base };
+                if h > 0.0 {
+                    rrect_soft(Rect::new(r.x, r.y + self.s(4.0), r.w, r.h), rad + self.s(4.0), with_alpha(t.accent, 0.30 * h), self.s(22.0));
+                }
+                rrect_grad(r, rad, mix(base, WHITE, 0.10), base);
+                rrect_stroke(r, rad, 1.0, with_alpha(WHITE, 0.10));
+                t.accent_text
+            }
+            Kind::Secondary => {
+                let base = lerp_c(t.surface_hover, t.surface_active, h);
+                rrect(r, rad, if pressed { mix(base, t.bg, 0.3) } else { base });
+                rrect_stroke(r, rad, 1.0, with_alpha(t.text, 0.05 + 0.05 * h));
+                t.text
+            }
+            Kind::Ghost => {
+                if h > 0.0 {
+                    rrect(r, rad, with_alpha(t.surface_hover, h));
+                }
+                lerp_c(t.text_dim, t.text, h)
+            }
         };
-        if bg.a > 0.0 {
-            rrect(r, rad, bg);
-        }
         let size = Self::button_font(r.h / self.scale);
         let label = self.fit(label, size, r.w - self.s(20.0), true);
         let w = self.measure(&label, size, true);
@@ -269,46 +343,84 @@ impl Ui {
         self.measure(label, Self::button_font(h_1080), true) + self.s(36.0)
     }
 
-    /// Top-level navigation item; returns (clicked, width).
-    pub fn nav(&mut self, x: f32, y: f32, h: f32, label: &str, active: bool) -> (bool, f32) {
+    /// Row of top-level tabs with a pill that slides to the active one.
+    /// Returns (clicked index, total width).
+    pub fn tabs(&mut self, x: f32, y: f32, h: f32, labels: &[&str], idx: usize) -> (Option<usize>, f32) {
         let t = theme::t();
-        let w = self.measure(label, size::BODY, true) + self.s(28.0);
-        let r = Rect::new(x, y, w, h);
-        let hov = self.hover(r);
-        let col = if active { t.text } else if hov { t.text } else { t.text_dim };
-        self.text_mid(label, x + self.s(14.0), r, size::BODY, col, active);
-        if active {
-            rrect(Rect::new(x + self.s(14.0), y + h - self.s(3.0), w - self.s(28.0), self.s(3.0)), self.s(1.5), t.accent);
+        let gap = self.s(4.0);
+        let ph = self.s(36.0).min(h);
+        let py = y + (h - ph) * 0.5;
+        let widths: Vec<f32> = labels.iter().map(|l| self.measure(l, size::BODY, true) + self.s(32.0)).collect();
+        let mut xs = vec![];
+        let mut cx = x;
+        for w in &widths {
+            xs.push(cx);
+            cx += w + gap;
         }
-        (self.click_in(r), w)
+        let key = hash_id("tabs") ^ (x as u64);
+        let tx = self.anim(key, xs[idx.min(xs.len() - 1)], 18.0);
+        let tw = self.anim(key ^ 1, widths[idx.min(widths.len() - 1)], 18.0);
+        rrect(Rect::new(tx, py, tw, ph), ph * 0.5, t.surface_active);
+        let mut out = None;
+        for (i, l) in labels.iter().enumerate() {
+            let r = Rect::new(xs[i], py, widths[i], ph);
+            let hv = self.hover_anim(r, l);
+            if i != idx && hv > 0.0 {
+                rrect(r, ph * 0.5, with_alpha(t.surface_hover, hv * 0.8));
+            }
+            if self.hover(r) {
+                self.hand = true;
+            }
+            let col = if i == idx { t.text } else { lerp_c(t.text_dim, t.text, hv) };
+            let lw = self.measure(l, size::BODY, true);
+            self.text_mid(l, r.x + (r.w - lw) * 0.5, r, size::BODY, col, true);
+            if self.click_in(r) {
+                out = Some(i);
+            }
+        }
+        (out, cx - x - gap)
     }
 
-    /// Pill segmented control. Returns the clicked index.
+    /// Pill segmented control with a sliding thumb. Returns the clicked index.
     pub fn segmented(&mut self, r: Rect, options: &[&str], idx: usize) -> Option<usize> {
         let t = theme::t();
-        rrect(r, self.s(4.0), t.surface_hover);
+        let rad = (r.h * 0.5).min(self.s(12.0));
+        rrect(r, rad, mix(t.surface_hover, t.bg, 0.25));
+        rrect_stroke(r, rad, 1.0, with_alpha(t.text, 0.04));
         let pad = self.s(3.0);
         let n = options.len().max(1);
         let total_text: f32 = options.iter().map(|o| self.measure(o, size::SMALL, true)).sum();
         let extra = ((r.w - 2.0 * pad) - total_text).max(0.0) / n as f32;
+        let mut segs = vec![];
         let mut x = r.x + pad;
+        for o in options {
+            let w = self.measure(o, size::SMALL, true) + extra;
+            segs.push(Rect::new(x, r.y + pad, w, r.h - 2.0 * pad));
+            x += w;
+        }
+        let key = rect_key(r, "seg");
+        let cur = segs[idx.min(n - 1)];
+        let tx = self.anim(key, cur.x, 20.0);
+        let tw = self.anim(key ^ 1, cur.w, 20.0);
+        let thumb = Rect::new(tx, cur.y, tw, cur.h);
+        let trad = (rad - pad).max(self.s(4.0));
+        rrect_soft(Rect::new(thumb.x, thumb.y + self.s(1.5), thumb.w, thumb.h), trad, Color::new(0.0, 0.0, 0.0, 0.35), self.s(6.0));
+        rrect(thumb, trad, t.surface_active);
+        rrect_stroke(thumb, trad, 1.0, with_alpha(t.text, 0.06));
         let mut out = None;
         for (i, o) in options.iter().enumerate() {
-            let w = self.measure(o, size::SMALL, true) + extra;
-            let seg = Rect::new(x, r.y + pad, w, r.h - 2.0 * pad);
+            let seg = segs[i];
             let active = i == idx;
-            if active {
-                rrect(seg, self.s(3.0), t.surface_active);
-            } else if self.hover(seg) {
+            let hv = self.hover_anim(seg, o);
+            if !active && self.hover(seg) {
                 self.hand = true;
             }
-            let col = if active { t.text } else { t.text_dim };
+            let col = if active { t.text } else { lerp_c(t.text_dim, t.text, hv * 0.7) };
             let tw = self.measure(o, size::SMALL, true);
             self.text_mid(o, seg.x + (seg.w - tw) * 0.5, seg, size::SMALL, col, true);
             if self.click_in(seg) {
                 out = Some(i);
             }
-            x += w;
         }
         out
     }
@@ -316,19 +428,22 @@ impl Ui {
     /// Small selectable pill. Returns true when clicked.
     pub fn chip(&mut self, r: Rect, label: &str, active: bool) -> bool {
         let t = theme::t();
-        let h = self.hover(r);
-        if h {
+        if self.hover(r) {
             self.hand = true;
         }
-        let bg = if active { with_alpha(t.accent, 0.18) } else if h { t.surface_active } else { t.surface_hover };
-        rrect(r, self.s(3.0), bg);
+        let h = self.hover_anim(r, label);
+        let rad = (r.h * 0.5).min(self.s(10.0));
         if active {
-            let b = self.s(1.5).max(1.0);
-            draw_rectangle_lines(r.x, r.y, r.w, r.h, b * 2.0, t.accent);
+            rrect(r, rad, with_alpha(t.accent, 0.16));
+            rrect_stroke(r, rad, 1.0, with_alpha(t.accent, 0.85));
+        } else {
+            rrect(r, rad, lerp_c(t.surface_hover, t.surface_active, h));
+            rrect_stroke(r, rad, 1.0, with_alpha(t.text, 0.04));
         }
         let label = self.fit(label, size::SMALL, r.w - self.s(12.0), active);
         let w = self.measure(&label, size::SMALL, active);
-        self.text_mid(&label, r.x + (r.w - w) * 0.5, r, size::SMALL, if active { t.text } else { t.text_dim }, active);
+        let col = if active { t.text } else { lerp_c(t.text_dim, t.text, h) };
+        self.text_mid(&label, r.x + (r.w - w) * 0.5, r, size::SMALL, col, active);
         self.click_in(r)
     }
 
@@ -343,13 +458,18 @@ impl Ui {
     /// iOS-style switch on the right edge of `r`. Returns true if toggled.
     pub fn switch(&mut self, r: Rect, v: &mut bool) -> bool {
         let t = theme::t();
-        let w = self.s(38.0);
-        let h = self.s(22.0);
+        let w = self.s(40.0);
+        let h = self.s(24.0);
         let sr = Rect::new(r.x + r.w - w, r.y + (r.h - h) * 0.5, w, h);
-        rrect(sr, h * 0.5, if *v { t.accent } else { t.surface_active });
-        let k = h - self.s(6.0);
-        let kx = if *v { sr.x + sr.w - k - self.s(3.0) } else { sr.x + self.s(3.0) };
-        draw_circle(kx + k * 0.5, sr.y + sr.h * 0.5, k * 0.5, if *v { t.accent_text } else { t.text_dim });
+        let k = self.anim(rect_key(sr, "sw"), if *v { 1.0 } else { 0.0 }, 18.0);
+        let hv = self.hover_anim(r, "swh");
+        rrect(sr, h * 0.5, lerp_c(mix(t.surface_active, t.text, 0.04 * hv), t.accent, k));
+        rrect_stroke(sr, h * 0.5, 1.0, with_alpha(t.text, 0.06 * (1.0 - k)));
+        let kr = (h - self.s(6.0)) * 0.5;
+        let kx = sr.x + self.s(3.0) + kr + (sr.w - self.s(6.0) - kr * 2.0) * k;
+        let ky = sr.y + sr.h * 0.5;
+        circle(kx, ky + self.s(1.0), kr + self.s(1.0), Color::new(0.0, 0.0, 0.0, 0.25));
+        circle(kx, ky, kr, lerp_c(mix(t.text_dim, t.text, 0.4), WHITE, k));
         if self.hover(r) {
             self.hand = true;
         }
@@ -363,16 +483,22 @@ impl Ui {
 
     pub fn slider(&mut self, id: u64, r: Rect, v: &mut f32, min: f32, max: f32, step: f32) -> bool {
         let t = theme::t();
-        let th = self.s(4.0);
+        let th = self.s(5.0);
         let ty = r.y + (r.h - th) * 0.5;
         rrect(Rect::new(r.x, ty, r.w, th), th * 0.5, t.surface_active);
         let k = ((*v - min) / (max - min)).clamp(0.0, 1.0);
         rrect(Rect::new(r.x, ty, (r.w * k).max(th), th), th * 0.5, t.accent);
         let kx = r.x + r.w * k;
-        let knob = self.s(8.0);
+        let knob = self.s(9.0);
         let hit = Rect::new(r.x - knob, r.y, r.w + 2.0 * knob, r.h);
         let active = self.drag == Some(id);
-        draw_circle(kx, r.y + r.h * 0.5, if active || self.hover(hit) { knob * 1.15 } else { knob }, t.text);
+        let g = self.anim(id ^ 0x51, if active || self.hover(hit) { 1.0 } else { 0.0 }, 16.0);
+        let ky = r.y + r.h * 0.5;
+        if g > 0.0 {
+            circle(kx, ky, knob + self.s(6.0) * g, with_alpha(t.accent, 0.18 * g));
+        }
+        circle(kx, ky + self.s(1.0), knob + self.s(1.0), Color::new(0.0, 0.0, 0.0, 0.3));
+        circle(kx, ky, knob, WHITE);
         if self.hover(hit) {
             self.hand = true;
         }
@@ -406,12 +532,14 @@ impl Ui {
     pub fn text_field_ex(&mut self, id: u64, r: Rect, value: &mut String, placeholder: &str, mask: bool) -> bool {
         let t = theme::t();
         let focused = self.focus == Some(id);
-        let rad = self.s(3.0);
-        if focused {
-            let g = self.s(2.0);
-            rrect(Rect::new(r.x - g, r.y - g, r.w + 2.0 * g, r.h + 2.0 * g), rad + g, with_alpha(t.accent, 0.6));
+        let rad = self.radius().min(r.h * 0.5);
+        let f = self.anim(id ^ 0xF0C, if focused { 1.0 } else { 0.0 }, 18.0);
+        let hv = self.hover_anim(r, "field");
+        if f > 0.0 {
+            rrect_soft(r, rad + self.s(3.0), with_alpha(t.accent, 0.22 * f), self.s(14.0));
         }
-        rrect(r, rad, t.surface_active);
+        rrect(r, rad, mix(t.surface_hover, t.bg, 0.35 - 0.15 * hv));
+        rrect_stroke(r, rad, 1.0, lerp_c(with_alpha(t.text, 0.07 + 0.05 * hv), t.accent, f));
         if self.hover(r) {
             self.hand = true;
         }
@@ -452,7 +580,7 @@ impl Ui {
                 self.focus = None;
             }
         }
-        let pad = self.s(12.0);
+        let pad = self.s(14.0);
         if value.is_empty() && self.focus != Some(id) {
             self.text_mid(placeholder, r.x + pad, r, size::BODY, t.text_faint, false);
         } else {
@@ -513,12 +641,14 @@ impl Ui {
         for (i, c) in colors.iter().enumerate() {
             let cx = x + i as f32 * (d + gap) + d * 0.5;
             let cy = y + d * 0.5;
-            if value == c {
-                draw_circle(cx, cy, d * 0.5 + self.s(3.5), t.text);
-                draw_circle(cx, cy, d * 0.5 + self.s(1.5), t.surface);
-            }
-            draw_circle(cx, cy, d * 0.5, Color::from_rgba(c[0], c[1], c[2], 255));
             let r = Rect::new(cx - d * 0.5, cy - d * 0.5, d, d);
+            let hv = self.hover_anim(r, "sw");
+            if value == c {
+                circle(cx, cy, d * 0.5 + self.s(4.0), t.text);
+                circle(cx, cy, d * 0.5 + self.s(2.0), t.surface);
+            }
+            circle(cx, cy, d * 0.5 + self.s(1.5) * hv, Color::from_rgba(c[0], c[1], c[2], 255));
+            rrect_stroke(Rect::new(cx - d * 0.5, cy - d * 0.5, d, d), d * 0.5, 1.0, with_alpha(WHITE, 0.08));
             if self.hover(r) {
                 self.hand = true;
             }
@@ -531,7 +661,7 @@ impl Ui {
     }
 
     /// Mouse-wheel scrolling for a region, with a thin scrollbar.
-    pub fn scroll(&self, area: Rect, offset: &mut f32, content_h: f32) {
+    pub fn scroll(&mut self, area: Rect, offset: &mut f32, content_h: f32) {
         let max = (content_h - area.h).max(0.0);
         if self.hover(area) && self.wheel != 0.0 {
             let step = if self.wheel.abs() > 10.0 { self.wheel * 0.6 } else { self.wheel * self.s(80.0) };
@@ -539,9 +669,12 @@ impl Ui {
         }
         *offset = offset.clamp(0.0, max);
         if max > 0.0 {
-            let bar_h = (area.h * area.h / content_h).max(self.s(28.0));
-            let by = area.y + (area.h - bar_h) * (*offset / max);
-            rrect(Rect::new(area.x + area.w - self.s(5.0), by, self.s(3.0), bar_h), self.s(1.5), theme::t().border);
+            let vis = self.hover_anim(area, "scroll");
+            let bar_h = (area.h * area.h / content_h).max(self.s(32.0));
+            let by = area.y + self.s(6.0) + (area.h - bar_h - self.s(12.0)) * (*offset / max);
+            let w = self.s(4.0);
+            let t = theme::t();
+            rrect(Rect::new(area.x + area.w - w - self.s(5.0), by, w, bar_h), w * 0.5, with_alpha(t.text, 0.10 + 0.12 * vis));
         }
     }
 }
@@ -551,34 +684,183 @@ fn round(v: f64, d: usize) -> f64 {
     (v * m).round() / m
 }
 
-/// Filled rounded rectangle (non-overlapping pieces, so alpha blends correctly).
-pub fn rrect(r: Rect, radius: f32, c: Color) {
-    let rad = radius.min(r.w * 0.5).min(r.h * 0.5).max(0.0);
-    if rad < 0.5 {
-        draw_rectangle(r.x, r.y, r.w, r.h, c);
-        return;
-    }
-    draw_rectangle(r.x + rad, r.y, r.w - 2.0 * rad, r.h, c);
-    draw_rectangle(r.x, r.y + rad, rad, r.h - 2.0 * rad, c);
-    draw_rectangle(r.x + r.w - rad, r.y + rad, rad, r.h - 2.0 * rad, c);
-    let segs = 8;
-    for (cx, cy, a0) in [
-        (r.x + rad, r.y + rad, std::f32::consts::PI),
-        (r.x + r.w - rad, r.y + rad, std::f32::consts::PI * 1.5),
+// ------------------------------------------------------------ shape drawing
+//
+// Everything rounded is drawn as one triangle mesh with a feathered edge, so
+// corners are smooth at any size and alpha blends without seams.
+
+use macroquad::models::{draw_mesh, Mesh, Vertex};
+
+/// Points around a rounded rect whose corners have radius `rad + off`.
+fn outline(r: Rect, rad: f32, off: f32, out: &mut Vec<Vec2>) {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let rr = (rad + off).max(0.0);
+    // Same point count for every ring of a shape (depends on the base radius only).
+    let n = ((rad + 2.0) * 0.5).clamp(2.0, 18.0) as usize;
+    let corners = [
         (r.x + r.w - rad, r.y + r.h - rad, 0.0),
-        (r.x + rad, r.y + r.h - rad, std::f32::consts::PI * 0.5),
-    ] {
-        for i in 0..segs {
-            let a = a0 + std::f32::consts::FRAC_PI_2 * i as f32 / segs as f32;
-            let b = a0 + std::f32::consts::FRAC_PI_2 * (i + 1) as f32 / segs as f32;
-            draw_triangle(
-                vec2(cx, cy),
-                vec2(cx + a.cos() * rad, cy + a.sin() * rad),
-                vec2(cx + b.cos() * rad, cy + b.sin() * rad),
-                c,
-            );
+        (r.x + rad, r.y + r.h - rad, FRAC_PI_2),
+        (r.x + rad, r.y + rad, PI),
+        (r.x + r.w - rad, r.y + rad, PI * 1.5),
+    ];
+    for (cx, cy, a0) in corners {
+        for i in 0..=n {
+            let a = a0 + FRAC_PI_2 * i as f32 / n as f32;
+            out.push(vec2(cx + a.cos() * rr, cy + a.sin() * rr));
         }
     }
+}
+
+/// Build and draw a rounded-rect mesh made of rings at the given (offset, alpha)
+/// pairs, optionally filled in the middle. `col` gives the colour at a point.
+fn rr_mesh(r: Rect, radius: f32, rings: &[(f32, f32)], fill: bool, col: &dyn Fn(Vec2) -> Color) {
+    if r.w <= 0.0 || r.h <= 0.0 {
+        return;
+    }
+    // A hair of radius keeps every ring the same length even for square corners.
+    let rad = radius.min(r.w * 0.5).min(r.h * 0.5).max(0.01);
+    let mut verts: Vec<Vertex> = vec![];
+    let mut idx: Vec<u16> = vec![];
+    let mut ring_start = vec![];
+    let mut n_ring = 0;
+    if fill {
+        let c = vec2(r.x + r.w * 0.5, r.y + r.h * 0.5);
+        let k = col(c);
+        let a = rings.first().map(|x| x.1).unwrap_or(1.0);
+        verts.push(Vertex::new(c.x, c.y, 0.0, 0.0, 0.0, Color::new(k.r, k.g, k.b, k.a * a)));
+    }
+    let mut pts = vec![];
+    for &(off, a) in rings {
+        pts.clear();
+        outline(r, rad, off, &mut pts);
+        n_ring = pts.len();
+        ring_start.push(verts.len());
+        for p in &pts {
+            let k = col(*p);
+            verts.push(Vertex::new(p.x, p.y, 0.0, 0.0, 0.0, Color::new(k.r, k.g, k.b, k.a * a)));
+        }
+    }
+    if verts.len() > u16::MAX as usize {
+        return;
+    }
+    if fill && !ring_start.is_empty() {
+        let s0 = ring_start[0];
+        for i in 0..n_ring {
+            idx.extend_from_slice(&[0, (s0 + i) as u16, (s0 + (i + 1) % n_ring) as u16]);
+        }
+    }
+    for w in ring_start.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        for i in 0..n_ring {
+            let j = (i + 1) % n_ring;
+            idx.extend_from_slice(&[(a + i) as u16, (b + i) as u16, (b + j) as u16, (a + i) as u16, (b + j) as u16, (a + j) as u16]);
+        }
+    }
+    draw_mesh(&Mesh { vertices: verts, indices: idx, texture: None });
+}
+
+/// Filled rounded rectangle with an anti-aliased edge.
+pub fn rrect(r: Rect, radius: f32, c: Color) {
+    if c.a <= 0.0 {
+        return;
+    }
+    rr_mesh(r, radius, &[(-0.5, 1.0), (0.5, 0.0)], true, &|_| c);
+}
+
+/// Rounded rectangle with a vertical gradient.
+pub fn rrect_grad(r: Rect, radius: f32, top: Color, bottom: Color) {
+    let f = move |p: Vec2| {
+        let k = ((p.y - r.y) / r.h.max(1.0)).clamp(0.0, 1.0);
+        Color::new(
+            top.r + (bottom.r - top.r) * k,
+            top.g + (bottom.g - top.g) * k,
+            top.b + (bottom.b - top.b) * k,
+            top.a + (bottom.a - top.a) * k,
+        )
+    };
+    rr_mesh(r, radius, &[(-0.5, 1.0), (0.5, 0.0)], true, &f);
+}
+
+/// Soft blurred rounded rect: shadows and glows. `blur` is the fade width.
+pub fn rrect_soft(r: Rect, radius: f32, c: Color, blur: f32) {
+    if c.a <= 0.0 {
+        return;
+    }
+    let b = blur.max(1.0);
+    rr_mesh(r, radius, &[(-b * 0.5, 1.0), (-b * 0.1, 0.62), (b * 0.25, 0.22), (b * 0.5, 0.0)], true, &|_| c);
+}
+
+/// Rounded outline, `w` px wide, anti-aliased.
+pub fn rrect_stroke(r: Rect, radius: f32, w: f32, c: Color) {
+    if c.a <= 0.0 {
+        return;
+    }
+    let h = w * 0.5;
+    if w >= 1.0 {
+        rr_mesh(r, radius, &[(-h - 0.5, 0.0), (-h + 0.5, 1.0), (h - 0.5, 1.0), (h + 0.5, 0.0)], false, &|_| c);
+    } else {
+        rr_mesh(r, radius, &[(-1.0, 0.0), (0.0, w), (1.0, 0.0)], false, &|_| c);
+    }
+}
+
+/// Paint the outside of `r`'s rounded corners with `c` (the colour behind),
+/// so anything drawn square into `r` ends up with rounded corners.
+pub fn round_corners(r: Rect, radius: f32, c: Color) {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let rad = radius.min(r.w * 0.5).min(r.h * 0.5);
+    if rad < 1.0 {
+        return;
+    }
+    let n = 12;
+    for (cx, cy, kx, ky, a0) in [
+        (r.x + rad, r.y + rad, r.x - 1.0, r.y - 1.0, PI),
+        (r.x + r.w - rad, r.y + rad, r.x + r.w + 1.0, r.y - 1.0, PI * 1.5),
+        (r.x + r.w - rad, r.y + r.h - rad, r.x + r.w + 1.0, r.y + r.h + 1.0, 0.0),
+        (r.x + rad, r.y + r.h - rad, r.x - 1.0, r.y + r.h + 1.0, FRAC_PI_2),
+    ] {
+        let mut verts = vec![Vertex::new(kx, ky, 0.0, 0.0, 0.0, c)];
+        let mut idx = vec![];
+        for i in 0..=n {
+            let a = a0 + FRAC_PI_2 * i as f32 / n as f32;
+            // Half a pixel inside the arc so the edge blends with the AA fill.
+            let rr = rad + 0.5;
+            verts.push(Vertex::new(cx + a.cos() * rr, cy + a.sin() * rr, 0.0, 0.0, 0.0, c));
+            if i > 0 {
+                idx.extend_from_slice(&[0u16, i as u16, (i + 1) as u16]);
+            }
+        }
+        draw_mesh(&Mesh { vertices: verts, indices: idx, texture: None });
+    }
+    rrect_stroke(r, rad, 1.0, with_alpha(WHITE, 0.06));
+}
+
+/// Smooth anti-aliased circle.
+pub fn circle(x: f32, y: f32, r: f32, c: Color) {
+    rrect(Rect::new(x - r, y - r, r * 2.0, r * 2.0), r, c);
+}
+
+/// Card look: soft shadow, surface fill and a hairline edge.
+pub fn panel(r: Rect, radius: f32, fill: Color, edge: Color, shadow: f32) {
+    if shadow > 0.0 {
+        rrect_soft(Rect::new(r.x, r.y + shadow * 0.35, r.w, r.h), radius + shadow * 0.3, Color::new(0.0, 0.0, 0.0, 0.32), shadow * 2.0);
+    }
+    rrect(r, radius, fill);
+    rrect_stroke(r, radius, 1.0, edge);
+}
+
+fn lerp_c(a: Color, b: Color, k: f32) -> Color {
+    let k = k.clamp(0.0, 1.0);
+    Color::new(a.r + (b.r - a.r) * k, a.g + (b.g - a.g) * k, a.b + (b.b - a.b) * k, a.a + (b.a - a.a) * k)
+}
+
+/// Stable key for a widget's eased state, from where it is and what it is.
+pub fn rect_key(r: Rect, salt: &str) -> u64 {
+    let mut h = hash_id(salt);
+    for v in [r.x, r.y, r.w, r.h] {
+        h ^= (v.round() as i64 as u64).wrapping_add(0x9E37_79B9);
+        h = h.wrapping_mul(0x1000_0000_01b3);
+    }
+    h
 }
 
 pub fn hash_id(s: &str) -> u64 {

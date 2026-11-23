@@ -3,7 +3,7 @@
 use super::intro::{draw_flicks, draw_glow, draw_range, Scene};
 use crate::app::{App, Screen, SignInMode, SubmitState};
 use crate::theme::{self, mix, with_alpha};
-use crate::ui::{hash_id, rrect, size, Kind};
+use crate::ui::{hash_id, size, Kind};
 use macroquad::prelude::*;
 
 const F_NAME: &str = "si_name";
@@ -139,8 +139,7 @@ impl App {
         let sub_lines = self.ui.wrap(sub, size::SMALL, cw - sc(72.0), false);
         let ch = sc(470.0 + if create { 76.0 } else { 0.0 } + err_lines as f32 * 18.0 + (sub_lines.len().max(1) - 1) as f32 * 20.0);
         let card = Rect::new(sw * 0.5 - cw * 0.5, sh * 0.5 - ch * 0.5, cw, ch);
-        rrect(Rect::new(card.x - sc(1.0), card.y - sc(1.0), card.w + sc(2.0), card.h + sc(2.0)), sc(13.0), with_alpha(th.text, 0.07));
-        rrect(card, sc(12.0), with_alpha(mix(th.surface, th.bg, 0.25), 0.94));
+        crate::ui::panel(card, sc(20.0), with_alpha(mix(th.surface, th.bg, 0.2), 0.96), with_alpha(th.text, 0.08), sc(40.0));
         let pad = sc(36.0);
         let x = card.x + pad;
         let w = card.w - pad * 2.0;

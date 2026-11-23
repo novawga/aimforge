@@ -117,9 +117,11 @@ impl App {
             }
             let rr = Rect::new(r.x, y, r.w, rh);
             if row.me {
-                rrect(rr, sc(3.0), theme::with_alpha(t.accent, 0.14));
-            } else if self.ui.hover(rr) {
-                rrect(rr, sc(3.0), t.surface_hover);
+                rrect(rr, sc(9.0), theme::with_alpha(t.accent, 0.13));
+                crate::ui::rrect_stroke(rr, sc(9.0), 1.0, theme::with_alpha(t.accent, 0.35));
+            } else {
+                let h = self.ui.hover_anim(rr, "brow");
+                rrect(rr, sc(9.0), theme::with_alpha(t.surface_hover, h));
             }
             let rank_col = match row.rank {
                 1 => Color::from_rgba(255, 205, 60, 255),
@@ -145,7 +147,16 @@ impl App {
                 }
             }
         }
-        if rows.is_empty() {
+        if rows.is_empty() && body.h > sc(120.0) {
+            // Empty state: a faint target and a short line, centred.
+            let cx = r.x + r.w * 0.5;
+            let cy = body.y + (body.h * 0.4).min(sc(180.0));
+            let rad = sc(26.0);
+            crate::ui::rrect_stroke(Rect::new(cx - rad, cy - rad, rad * 2.0, rad * 2.0), rad, sc(2.0), theme::with_alpha(t.text, 0.12));
+            crate::ui::circle(cx, cy, sc(6.0), theme::with_alpha(t.accent, 0.6));
+            self.ui.text_center("No runs yet", cx, cy + rad + sc(18.0), size::BODY, t.text_dim, true);
+            self.ui.text_center("Play this scenario to set the first score.", cx, cy + rad + sc(44.0), size::SMALL, t.text_faint, false);
+        } else if rows.is_empty() {
             self.ui.text("No runs yet.", r.x + sc(10.0), body.y + sc(10.0), size::SMALL, t.text_faint);
         }
         out
@@ -202,15 +213,10 @@ impl App {
             }
             let rr = Rect::new(list.x + sc(8.0), y, list.w - sc(20.0), rh);
             let active = sel.as_deref() == Some(scenario::key(n).as_str());
-            if active {
-                rrect(rr, sc(3.0), t.surface_active);
-            } else if self.ui.hover(rr) {
-                rrect(rr, sc(3.0), t.surface_hover);
-                self.ui.hand = true;
-            }
+            self.ui.row_bg(rr, active);
             let col = if active || *played { t.text } else { t.text_dim };
             let label = self.ui.fit(n, size::BODY, rr.w - sc(24.0), false);
-            self.ui.text_mid(&label, rr.x + sc(12.0), rr, size::BODY, col, active);
+            self.ui.text_mid(&label, rr.x + sc(18.0), rr, size::BODY, col, active);
             if self.ui.click_in(rr) {
                 self.board_scenario = Some(n.clone());
                 self.board_scroll = 0.0;

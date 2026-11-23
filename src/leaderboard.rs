@@ -214,7 +214,7 @@ fn net_err(e: ureq::Error) -> String {
             let msg: String = body.chars().take(160).collect();
             format!("server said {code}: {msg}")
         }
-        other => format!("offline ({other})"),
+        _ => "Can't reach the leaderboard server. Check your internet connection.".to_string(),
     }
 }
 

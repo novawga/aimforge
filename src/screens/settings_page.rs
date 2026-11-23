@@ -59,19 +59,19 @@ impl App {
         let t = theme::t();
         let s = self.ui.scale;
         let sc = |v: f32| (v * s).round();
-        // Sub-navigation.
-        let nav = Rect::new(r.x, r.y, sc(240.0), r.h);
+        // Sub-navigation and card, centred as one block.
+        let pad = sc(36.0);
+        let nav_w = sc(240.0);
+        let card_w = (r.w - nav_w - sc(24.0)).min(sc(860.0) + 2.0 * pad);
+        let total = nav_w + sc(24.0) + card_w;
+        let left = r.x + ((r.w - total) * 0.5).max(0.0).round();
+        let nav = Rect::new(left, r.y, nav_w, r.h);
         let mut y = nav.y;
         for p in SettingsPage::ALL {
             let rr = Rect::new(nav.x, y, nav.w, sc(40.0));
             let active = self.settings_page == p;
-            if active {
-                rrect(rr, sc(3.0), t.surface_active);
-            } else if self.ui.hover(rr) {
-                rrect(rr, sc(3.0), t.surface_hover);
-                self.ui.hand = true;
-            }
-            self.ui.text_mid(p.label(), rr.x + sc(14.0), rr, size::BODY, if active { t.text } else { t.text_dim }, active);
+            self.ui.row_bg(rr, active);
+            self.ui.text_mid(p.label(), rr.x + sc(18.0), rr, size::BODY, if active { t.text } else { t.text_dim }, active);
             if self.ui.click_in(rr) && !active {
                 self.settings_page = p;
                 self.page_scroll = 0.0;
@@ -79,8 +79,6 @@ impl App {
             y += sc(44.0);
         }
 
-        let pad = sc(36.0);
-        let card_w = (r.w - nav.w - sc(24.0)).min(sc(860.0) + 2.0 * pad);
         let card = Rect::new(nav.x + nav.w + sc(24.0), r.y, card_w, r.h);
         self.ui.card(card);
         let inner = Rect::new(card.x + pad, card.y + sc(8.0), (card.w - 2.0 * pad).min(sc(820.0)), card.h - sc(16.0));
@@ -254,7 +252,8 @@ impl App {
             let tw = (f.w - f.sc(10.0) * (n - 1.0)) / n;
             for (i, (k, v)) in tiles.iter().enumerate() {
                 let tr = Rect::new(f.x + i as f32 * (tw + f.sc(10.0)), f.y, tw, f.sc(72.0));
-                rrect(tr, f.sc(3.0), t.surface_hover);
+                rrect(tr, f.sc(12.0), t.surface_hover);
+                crate::ui::rrect_stroke(tr, f.sc(12.0), 1.0, theme::with_alpha(t.text, 0.04));
                 self.ui.text(k, tr.x + f.sc(14.0), tr.y + f.sc(12.0), size::CAPTION, t.text_faint);
                 self.ui.strong(v, tr.x + f.sc(14.0), tr.y + f.sc(34.0), 20.0, t.text);
             }
@@ -269,7 +268,7 @@ impl App {
                 let current = g == self.settings.sens_scale;
                 let rr = Rect::new(f.x - f.sc(12.0), f.y, f.w + f.sc(24.0), h);
                 if current {
-                    rrect(rr, f.sc(3.0), t.surface_hover);
+                    rrect(rr, f.sc(10.0), t.surface_hover);
                 }
                 self.ui.text_mid(g.label(), f.x, rr, size::BODY, if current { t.text } else { t.text_dim }, current);
                 let v = self.settings.sens_in(g);
@@ -333,7 +332,7 @@ impl App {
             let half = (f.w - f.sc(12.0)) * 0.5;
             for (i, (zoom, label)) in [(1.0, "Actual size"), (3.0, "Zoomed 3×")].iter().enumerate() {
                 let pr = Rect::new(f.x + i as f32 * (half + f.sc(12.0)), f.y, half, ph);
-                rrect(pr, f.sc(8.0), t.wall);
+                draw_rectangle(pr.x, pr.y, pr.w, pr.h, t.wall);
                 let step = f.sc(24.0) * zoom;
                 let mut gx = pr.x + (pr.w * 0.5) % step;
                 while gx < pr.x + pr.w {
@@ -344,6 +343,7 @@ impl App {
                 draw_circle(pr.x + pr.w * 0.5 + f.sc(46.0) * zoom.min(1.5), pr.y + pr.h * 0.5 - f.sc(26.0), f.sc(14.0) * zoom.min(1.5), tc);
                 self.settings.crosshair.draw(pr.x + pr.w * 0.5, pr.y + pr.h * 0.5, self.ui.scale * zoom);
                 self.ui.text(label, pr.x + f.sc(12.0), pr.y + f.sc(10.0), size::CAPTION, theme::with_alpha(t.text, 0.75));
+                crate::ui::round_corners(pr, f.sc(12.0), t.surface);
             }
         }
         f.y += ph + f.sc(16.0);
@@ -468,6 +468,7 @@ impl App {
             self.renderer.draw_map_preview(&self.settings.map, pr);
             let name = if self.settings.map.preset.is_empty() { "Custom".to_string() } else { self.settings.map.preset.clone() };
             self.ui.shadow_text(&name, pr.x + pr.w * 0.5, pr.y + pr.h - f.sc(30.0), size::SMALL, WHITE, true);
+            crate::ui::round_corners(pr, f.sc(14.0), t.surface);
         }
         f.y += ph + f.sc(14.0);
 

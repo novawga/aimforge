@@ -12,6 +12,7 @@ impl App {
         self.set_grab(false);
         let t = theme::t();
         clear_background(t.bg);
+        super::menu::draw_backdrop();
         let Some(res) = &self.result else {
             self.screen = Screen::Menu;
             return;
@@ -20,6 +21,8 @@ impl App {
         let s = self.ui.scale;
         let sc = |v: f32| (v * s).round();
         let pad = sc(48.0);
+        // Cards stretch down to just above the action buttons.
+        let bottom = sh - pad - sc(48.0) - sc(36.0);
         let rec = res.rec.clone();
         let name = res.name.clone();
         let prev_best = res.prev_best;
@@ -73,22 +76,27 @@ impl App {
             items.push(("Kills / second", format!("{:.2}", rec.kills as f32 / rec.duration.max(0.1))));
             items.push(("Average time to kill", format!("{:.3} s", rec.avg_ttk)));
         }
-        items.push(("Sensitivity", format!("{:.2} cm/360", rec.cm360)));
-        items.push(("FOV", crate::settings::trim_num(rec.hfov as f64)));
+        items.push(("Sensitivity  ·  FOV", format!("{:.2} cm  ·  {}", rec.cm360, crate::settings::trim_num(rec.hfov as f64))));
         let rows = items.len().div_ceil(2);
-        let stats = Rect::new(pad, card.y + card.h + sc(16.0), left_w, sc(40.0) + rows as f32 * sc(58.0));
-        self.ui.card(stats);
-        let colw = (left_w - sc(56.0)) / 2.0;
+        let stats_y = card.y + card.h + sc(16.0);
+        let stats = Rect::new(pad, stats_y, left_w, bottom - stats_y);
+        // One tile per stat, two columns, sharing the height.
+        let gap = sc(12.0);
+        let tw = (left_w - gap) / 2.0;
+        let th = ((stats.h - gap * (rows as f32 - 1.0)) / rows as f32).min(sc(170.0));
         for (i, (k, v)) in items.iter().enumerate() {
-            let x = stats.x + sc(28.0) + (i % 2) as f32 * colw;
-            let yy = stats.y + sc(22.0) + (i / 2) as f32 * sc(58.0);
-            self.ui.text(k, x, yy, size::CAPTION, t.text_faint);
-            self.ui.strong(v, x, yy + sc(20.0), 17.0, t.text);
+            let span = i == items.len() - 1 && items.len() % 2 == 1;
+            let tr = Rect::new(stats.x + (i % 2) as f32 * (tw + gap), stats.y + (i / 2) as f32 * (th + gap), if span { left_w } else { tw }, th);
+            crate::ui::panel(tr, sc(14.0), t.surface, theme::with_alpha(t.text, 0.05), sc(10.0));
+            let block = sc(20.0) + sc(28.0);
+            let ty = tr.y + (tr.h - block) * 0.5;
+            self.ui.text(k, tr.x + sc(20.0), ty, size::CAPTION, t.text_faint);
+            self.ui.strong(v, tr.x + sc(20.0), ty + sc(20.0), 22.0, t.text);
         }
 
         // Right card: leaderboard / your runs / history.
         let gx = pad + left_w + sc(20.0);
-        let gr = Rect::new(gx, card.y, sw - gx - pad, stats.y + stats.h - card.y);
+        let gr = Rect::new(gx, card.y, sw - gx - pad, bottom - card.y);
         self.ui.card(gr);
         let tabs = ["Leaderboard", "Your runs", "History"];
         if let Some(i) = self.ui.segmented(Rect::new(gr.x + sc(20.0), gr.y + sc(16.0), sc(330.0), sc(34.0)), &tabs, self.results_tab) {

@@ -7,8 +7,8 @@ use crate::theme::{self, category};
 use crate::ui::{fmt_score, hash_id, rrect, size, Kind, Ui};
 use macroquad::prelude::*;
 
-const TOPBAR: f32 = 64.0;
-const PAD: f32 = 32.0;
+const TOPBAR: f32 = 72.0;
+const PAD: f32 = 36.0;
 
 impl App {
     pub fn frame_menu(&mut self) {
@@ -22,20 +22,42 @@ impl App {
         let s = self.ui.scale;
         let sc = |v: f32| (v * s).round();
 
+        draw_backdrop();
+
         // Top bar.
         let bar_h = sc(TOPBAR);
         let x0 = sc(PAD);
-        let wm_w = self.ui.strong("AimForge", x0, (bar_h - sc(20.0)) * 0.5 - sc(2.0), 19.0, t.text);
-        let mut x = x0 + wm_w + sc(28.0);
-        for (tab, label) in [(Tab::Scenarios, "Scenarios"), (Tab::Playlists, "Playlists"), (Tab::Leaderboards, "Leaderboards"), (Tab::Settings, "Settings")] {
-            let (clicked, w) = self.ui.nav(x, 0.0, bar_h, label, self.tab == tab);
-            if clicked {
-                self.tab = tab;
-                self.page_scroll = 0.0;
-            }
-            x += w;
+        let mid = bar_h * 0.5;
+        draw_logo(x0 + sc(11.0), mid, sc(11.0));
+        let wm_w = self.ui.strong("AimForge", x0 + sc(30.0), mid - sc(11.0), 18.0, t.text);
+        let x = x0 + sc(30.0) + wm_w + sc(32.0);
+        let tabs = [Tab::Scenarios, Tab::Playlists, Tab::Leaderboards, Tab::Settings];
+        let idx = tabs.iter().position(|t| *t == self.tab).unwrap_or(0);
+        if let (Some(i), _) = self.ui.tabs(x, 0.0, bar_h, &["Scenarios", "Playlists", "Leaderboards", "Settings"], idx) {
+            self.tab = tabs[i];
+            self.page_scroll = 0.0;
         }
-        let chip = Rect::new(sw - x0, 0.0, 0.0, bar_h);
+        // Account, top right.
+        let acct = if self.settings.account { self.settings.player_name.clone() } else { "Guest".to_string() };
+        let aw = self.ui.measure(&acct, size::SMALL, true) + sc(52.0);
+        let ar = Rect::new(sw - x0 - aw, mid - sc(17.0), aw, sc(34.0));
+        let ah = self.ui.hover_anim(ar, "acct");
+        crate::ui::rrect(ar, ar.h * 0.5, theme::with_alpha(t.surface_hover, 0.6 + 0.4 * ah));
+        crate::ui::rrect_stroke(ar, ar.h * 0.5, 1.0, theme::with_alpha(t.text, 0.06));
+        let initial = acct.chars().next().unwrap_or('G').to_uppercase().to_string();
+        let (cx, cy, cr) = (ar.x + sc(17.0), mid, sc(12.0));
+        crate::ui::circle(cx, cy, cr, if self.settings.account { t.accent } else { t.surface_active });
+        let iw = self.ui.measure(&initial, size::CAPTION, true);
+        self.ui.text_mid(&initial, cx - iw * 0.5, Rect::new(cx - cr, cy - cr, cr * 2.0, cr * 2.0), size::CAPTION, t.accent_text, true);
+        self.ui.text_mid(&acct, ar.x + sc(36.0), ar, size::SMALL, t.text, true);
+        if self.ui.hover(ar) {
+            self.ui.hand = true;
+        }
+        if self.ui.click_in(ar) {
+            self.tab = Tab::Settings;
+            self.settings_page = SettingsPage::Gameplay;
+        }
+        let chip = Rect::new(ar.x - sc(4.0), 0.0, 0.0, bar_h);
         // Update status, top right.
         use crate::update::Status;
         let upd = match &self.updater.status {
@@ -65,11 +87,10 @@ impl App {
                     }
                 }
             } else {
-                rrect(r, sc(3.0), t.surface_hover);
+                rrect(r, r.h * 0.5, t.surface_hover);
                 self.ui.text_mid(&label, r.x + sc(18.0), r, size::SMALL, t.text_dim, true);
             }
         }
-        self.ui.divider(0.0, bar_h - 1.0, sw);
 
         let content = Rect::new(x0, bar_h + sc(24.0), sw - 2.0 * x0, sh - bar_h - sc(24.0) - sc(PAD));
         match self.tab {
@@ -149,7 +170,7 @@ impl App {
         let list = Rect::new(r.x, top, (r.w * 0.6).round(), r.h - (top - r.y));
         self.ui.card(list);
         let rows = self.filtered();
-        let cols = [list.x + sc(20.0), list.x + list.w - sc(340.0), list.x + list.w - sc(190.0), list.x + list.w - sc(110.0)];
+        let cols = [list.x + sc(26.0), list.x + list.w - sc(340.0), list.x + list.w - sc(190.0), list.x + list.w - sc(110.0)];
         let head_y = list.y + sc(14.0);
         self.ui.text(&format!("{} scenarios", rows.len()), cols[0], head_y, size::CAPTION, t.text_faint);
         self.ui.text("Type", cols[1], head_y, size::CAPTION, t.text_faint);
@@ -170,12 +191,7 @@ impl App {
             let rr = Rect::new(body.x + sc(8.0), y, body.w - sc(20.0), row_h);
             let e = &self.entries[ei];
             let sel = sel_key.as_deref() == Some(e.lower.as_str());
-            if sel {
-                rrect(rr, sc(3.0), t.surface_active);
-            } else if self.ui.hover(rr) {
-                rrect(rr, sc(3.0), t.surface_hover);
-                self.ui.hand = true;
-            }
+            self.ui.row_bg(rr, sel);
             let custom = e.source == Source::Custom;
             let tag_w = if custom { self.ui.measure("custom", size::CAPTION, false) + sc(14.0) } else { 0.0 };
             let name = self.ui.fit(&e.name, size::BODY, cols[1] - cols[0] - sc(20.0) - tag_w, false);
@@ -183,8 +199,7 @@ impl App {
             if custom {
                 self.ui.text_mid("custom", cols[0] + nw + sc(10.0), rr, size::CAPTION, t.accent, false);
             }
-            draw_circle(cols[1] + sc(4.0), rr.y + rr.h * 0.5, sc(3.5), category(e.category));
-            self.ui.text_mid(short_cat(e.category), cols[1] + sc(16.0), rr, size::SMALL, t.text_dim, false);
+            cat_pill(&self.ui, cols[1], rr, e.category);
             let plays = self.history.plays(&e.name);
             self.ui.text_mid(&if plays > 0 { plays.to_string() } else { "–".into() }, cols[2], rr, size::SMALL, t.text_dim, false);
             let best = self.history.best(&e.name).map(fmt_score).unwrap_or_else(|| "–".into());
@@ -383,14 +398,9 @@ impl App {
                     Some(i) => {
                         let rr = Rect::new(list.x + sc(8.0), y, list.w - sc(20.0), *h);
                         let sel = *i == self.pl_selected;
-                        if sel {
-                            rrect(rr, sc(3.0), t.surface_active);
-                        } else if self.ui.hover(rr) {
-                            rrect(rr, sc(3.0), t.surface_hover);
-                            self.ui.hand = true;
-                        }
+                        self.ui.row_bg(rr, sel);
                         let fitted = self.ui.fit(label, size::BODY, rr.w - sc(64.0), false);
-                        self.ui.text_mid(&fitted, rr.x + sc(12.0), rr, size::BODY, if sel { t.text } else { t.text_dim }, false);
+                        self.ui.text_mid(&fitted, rr.x + sc(18.0), rr, size::BODY, if sel { t.text } else { t.text_dim }, false);
                         let n = self.playlists[*i].entries.len();
                         self.ui.text_right(&n.to_string(), rr.x + rr.w - sc(12.0), rr.y + (rr.h - sc(size::SMALL)) * 0.5 - sc(1.0), size::SMALL, t.text_faint, false);
                         if self.ui.click_in(rr) {
@@ -437,9 +447,7 @@ impl App {
             }
             let rr = Rect::new(d.x + sc(12.0), y, d.w - sc(24.0), rh);
             let hov = self.ui.hover(rr);
-            if hov {
-                rrect(rr, sc(3.0), t.surface_hover);
-            }
+            self.ui.row_bg(rr, false);
             let cat = self
                 .entries
                 .iter()
@@ -467,6 +475,19 @@ impl App {
     }
 }
 
+/// Category name in a softly tinted pill, vertically centred in `row`.
+pub fn cat_pill(ui: &Ui, x: f32, row: Rect, c: Category) {
+    let t = theme::t();
+    let label = short_cat(c);
+    let col = category(c);
+    let w = ui.measure(label, size::CAPTION, true) + ui.s(26.0);
+    let h = ui.s(22.0);
+    let r = Rect::new(x, row.y + (row.h - h) * 0.5, w, h);
+    rrect(r, h * 0.5, theme::with_alpha(col, 0.13));
+    crate::ui::circle(r.x + ui.s(10.0), r.y + h * 0.5, ui.s(3.0), col);
+    ui.text_mid(label, r.x + ui.s(17.0), r, size::CAPTION, theme::mix(col, t.text, 0.45), true);
+}
+
 fn short_cat(c: Category) -> &'static str {
     match c {
         Category::Clicking => "Clicking",
@@ -492,6 +513,25 @@ fn pretty_group(g: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Quiet depth behind the menus: a faint accent glow at the top.
+pub fn draw_backdrop() {
+    let t = theme::t();
+    let (sw, sh) = (screen_width(), screen_height());
+    crate::ui::rrect_soft(Rect::new(sw * 0.15, -sh * 0.55, sw * 0.7, sh * 0.75), sh * 0.35, theme::with_alpha(t.accent, 0.05), sh * 0.6);
+}
+
+/// Small crosshair-in-a-ring mark next to the wordmark.
+pub fn draw_logo(x: f32, y: f32, r: f32) {
+    let t = theme::t();
+    crate::ui::rrect_stroke(Rect::new(x - r, y - r, r * 2.0, r * 2.0), r, (r * 0.2).max(1.5), t.accent);
+    let th = (r * 0.18).max(1.5);
+    let (g, l) = (r * 0.28, r * 0.55);
+    for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+        draw_line(x + dx * g, y + dy * g, x + dx * (g + l), y + dy * (g + l), th, t.text);
+    }
+    crate::ui::circle(x, y, th * 0.6, t.text);
 }
 
 /// Score line chart with best line.

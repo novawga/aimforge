@@ -4,7 +4,7 @@
 //! flicks between targets on a perspective range while the game loads.
 
 use crate::theme::{self, mix, with_alpha};
-use crate::ui::{size, Ui};
+use crate::ui::{circle, size, Ui};
 use macroquad::prelude::*;
 use std::f32::consts::TAU;
 
@@ -57,13 +57,13 @@ pub fn draw_ball(p: Vec2, r: f32, c: Color, a: f32) {
     }
     for i in 0..6 {
         let k = i as f32 / 6.0;
-        draw_circle(p.x, p.y, r * (1.25 + k * 1.1), with_alpha(c, a * 0.05 * (1.0 - k)));
+        circle(p.x, p.y, r * (1.25 + k * 1.1), with_alpha(c, a * 0.05 * (1.0 - k)));
     }
-    draw_circle(p.x, p.y, r, with_alpha(mix(c, BLACK, 0.45), a));
-    draw_circle(p.x - r * 0.08, p.y - r * 0.1, r * 0.88, with_alpha(mix(c, BLACK, 0.15), a));
-    draw_circle(p.x - r * 0.18, p.y - r * 0.22, r * 0.66, with_alpha(c, a));
-    draw_circle(p.x - r * 0.3, p.y - r * 0.34, r * 0.34, with_alpha(mix(c, WHITE, 0.35), a));
-    draw_circle(p.x - r * 0.36, p.y - r * 0.42, r * 0.13, with_alpha(WHITE, a * 0.85));
+    circle(p.x, p.y, r, with_alpha(mix(c, BLACK, 0.45), a));
+    circle(p.x - r * 0.08, p.y - r * 0.1, r * 0.88, with_alpha(mix(c, BLACK, 0.15), a));
+    circle(p.x - r * 0.18, p.y - r * 0.22, r * 0.66, with_alpha(c, a));
+    circle(p.x - r * 0.3, p.y - r * 0.34, r * 0.34, with_alpha(mix(c, WHITE, 0.35), a));
+    circle(p.x - r * 0.36, p.y - r * 0.42, r * 0.13, with_alpha(WHITE, a * 0.85));
 }
 
 fn draw_crosshair(p: Vec2, s: f32, c: Color, a: f32) {
@@ -151,7 +151,7 @@ pub fn draw_flicks(t: f64, s: &Scene) -> Vec2 {
         let a = s.alpha * (1.0 - q).powi(2);
         let rr = ball_r * (1.0 + ease_out_cubic(q) * 2.6);
         draw_poly_lines(p.x, p.y, 48, rr, 0.0, (ball_r * 0.16 * (1.0 - q)).max(1.0), with_alpha(s.ball, a));
-        draw_circle(p.x, p.y, ball_r * 0.9 * (1.0 - q).powi(3), with_alpha(mix(s.ball, WHITE, 0.6), a));
+        circle(p.x, p.y, ball_r * 0.9 * (1.0 - q).powi(3), with_alpha(mix(s.ball, WHITE, 0.6), a));
         for n in 0..8 {
             let ang = n as f32 / 8.0 * TAU + hash(j, 7) * TAU;
             let d0 = ball_r * (0.6 + q * 2.2);
