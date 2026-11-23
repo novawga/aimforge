@@ -44,8 +44,8 @@ pub struct Ui {
     dt: f32,
 }
 
-const INTER_REGULAR: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");
-const INTER_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Inter-SemiBold.ttf");
+const INTER_REGULAR: &[u8] = &[];
+const INTER_SEMIBOLD: &[u8] = &[];
 
 fn embedded(bytes: &[u8]) -> Option<Font> {
     let mut f = load_ttf_font_from_bytes(bytes).ok()?;
