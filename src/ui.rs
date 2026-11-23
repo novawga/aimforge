@@ -47,7 +47,11 @@ pub struct Ui {
 const INTER_REGULAR: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Inter-SemiBold.ttf");
 
-fn embedded(bytes: &[u8]) -> Option<Font> {
+#[inline(never)]
+fn embedded(bytes: &'static [u8]) -> Option<Font> {
+    // Hide the bytes from the optimiser: with them visible, LLVM on Windows tried
+    // to constant-fold the whole font parser over 400 KB and ran out of memory.
+    let bytes: &[u8] = std::hint::black_box(bytes);
     let mut f = load_ttf_font_from_bytes(bytes).ok()?;
     f.set_filter(FilterMode::Linear);
     Some(f)
